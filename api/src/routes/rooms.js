@@ -8,10 +8,13 @@ import {
   annulBet,
   assignBetSide,
   currentRoundView,
+  payBet,
   placeBet,
   recentRoundsView,
   refundBet,
+  roundAccounting,
   roundBetsView,
+  winnersView,
 } from "../services/roundService.js";
 
 export const roomsRouter = Router();
@@ -100,6 +103,9 @@ const publicBet = (bet) => ({
   paymentVerified: bet.paymentVerified,
   annulReason: bet.annulReason,
   refundOperationNumber: bet.refundOperationNumber,
+  payoutCentimos: bet.payoutCentimos,
+  paidOperationNumber: bet.paidOperationNumber,
+  paidAt: bet.paidAt,
 });
 
 const reply = (res, result, okStatus = 200) =>
@@ -204,6 +210,65 @@ roomsRouter.post(
     return annulBet(room, betId, parsed.data.reason);
   }),
 );
+
+// R25: marcar el premio como pagado con su nº de operación.
+roomsRouter.post(
+  "/:code/bets/:betId/pay",
+  requireAuth,
+  betAction((room, betId, body) => {
+    const parsed = z
+      .object({ operationNumber: z.string().trim().min(1).max(64) })
+      .safeParse(body);
+    if (!parsed.success) {
+      return { error: "número de operación requerido", status: 400 };
+    }
+    return payBet(room, betId, parsed.data.operationNumber);
+  }),
+);
+
+// R25: bandeja "Ganadores por pagar" (por defecto la última LIQUIDADA).
+roomsRouter.get("/:code/winners", requireAuth, async (req, res, next) => {
+  try {
+    const room = await findRoomByCode(req.params.code);
+    if (!room) {
+      return res.status(404).json({ error: "sala no encontrada" });
+    }
+    if (!cashierOf(room, req.user)) {
+      return res.status(403).json({ error: "sin permiso" });
+    }
+    const seq = req.query.seq === undefined ? null : Number(req.query.seq);
+    if (seq !== null && !Number.isInteger(seq)) {
+      return res.status(400).json({ error: "seq inválido" });
+    }
+    res.json(await winnersView(room, seq));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// R26: contabilidad por ronda — lo recibido queda trazado.
+roomsRouter.get("/:code/rounds/:seq/accounting", requireAuth, async (req, res, next) => {
+  try {
+    const room = await findRoomByCode(req.params.code);
+    if (!room) {
+      return res.status(404).json({ error: "sala no encontrada" });
+    }
+    if (!cashierOf(room, req.user)) {
+      return res.status(403).json({ error: "sin permiso" });
+    }
+    const seq = Number(req.params.seq);
+    if (!Number.isInteger(seq)) {
+      return res.status(400).json({ error: "seq inválido" });
+    }
+    const acc = await roundAccounting(room, seq);
+    if (!acc) {
+      return res.status(404).json({ error: "ronda no encontrada" });
+    }
+    res.json(acc);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // R24: devolver una apuesta en espera (saldo a favor).
 roomsRouter.post(

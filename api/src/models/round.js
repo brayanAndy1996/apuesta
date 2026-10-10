@@ -116,6 +116,24 @@ Bet.init(
       allowNull: true,
       field: "refund_operation_number",
     },
+    // Premio al liquidar (R25): null = no aplicaba; 0 = perdedora en bolsa.
+    payoutCentimos: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: "payout_centimos",
+    },
+    paidOperationNumber: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      field: "paid_operation_number",
+    },
+    paidAt: { type: DataTypes.DATE, allowNull: true, field: "paid_at" },
+    // Ronda donde se registró (el arrastre la mueve de round_id).
+    originRoundId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      field: "origin_round_id",
+    },
   },
   {
     sequelize,

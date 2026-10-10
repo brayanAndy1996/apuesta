@@ -3,6 +3,7 @@ import { Op, QueryTypes } from "sequelize";
 import { sequelize } from "../db.js";
 import { drawSlot } from "../domain/draw.js";
 import { createPool, drain, equalize, isSecure, maxMultiplier, missingFor } from "../domain/pool.js";
+import { settle } from "../domain/settlement.js";
 import { newSeed, seedHash } from "../lib/seed.js";
 import { Room } from "../models/room.js";
 import {
@@ -218,6 +219,7 @@ async function placeBetOnce(room, bet, now) {
 
     const { side, amountCentimos, ...meta } = bet;
     const created = [];
+    const origin = { originRoundId: round.id };
     if (side === null || side === undefined) {
       // R22: bandeja "Sin color" — no entra a la cola del dominio.
       created.push(
@@ -229,6 +231,7 @@ async function placeBetOnce(room, bet, now) {
             amountCentimos,
             status: BET_STATUS.QUEUED,
             ...meta,
+            ...origin,
           },
           { transaction },
         ),
@@ -246,6 +249,7 @@ async function placeBetOnce(room, bet, now) {
               amountCentimos: part,
               status: BET_STATUS.QUEUED,
               ...(created.length === 0 ? meta : { cashierId: meta.cashierId }),
+              ...origin,
             },
             { transaction },
           ),
@@ -438,7 +442,24 @@ export async function processExpiredRounds(now = new Date()) {
       const state = await loadPoolState(room, locked, transaction);
 
       if (locked.state === GIRANDO) {
-        // LIQUIDADA: semilla revelada (la 006 la usa para verificar)
+        // LIQUIDADA: semilla revelada (la 006 la usa para verificar) y
+        // premios calculados sobre la bolsa (R25).
+        const slots = await room.getSlots({ transaction });
+        // En producción resultSlotId ya viene del cierre (R9); por defensa se
+        // deriva aquí si faltara (misma semilla → mismo resultado).
+        if (!locked.resultSlotId) {
+          locked.resultSlotId = drawSlot(locked.seed, slots).slot.id;
+        }
+        const poolBets = await Bet.findAll({
+          where: { roundId: locked.id, status: BET_STATUS.POOL },
+          transaction,
+        });
+        const { payouts } = settle(locked, slots, poolBets);
+        const byId = new Map(payouts.map((p) => [p.betId, p.amount]));
+        for (const b of poolBets) {
+          b.payoutCentimos = byId.get(b.id) ?? 0;
+          await b.save({ transaction });
+        }
         locked.state = LIQUIDADA;
         await locked.save({ transaction });
         const next = await lockOpenRound(room, transaction);
@@ -554,6 +575,97 @@ export async function roundBetsView(room) {
       annulReason: b.annulReason,
       refundOperationNumber: b.refundOperationNumber,
     })),
+  };
+}
+
+// R25: bandeja "Ganadores por pagar" de una ronda liquidada.
+export async function winnersView(room, seq = null) {
+  const where = { roomId: room.id, state: LIQUIDADA };
+  const round = seq === null
+    ? await Round.findOne({ where, order: [["seq", "DESC"]] })
+    : await Round.findOne({ where: { ...where, seq } });
+  if (!round) return { seq: null, winners: [] };
+  const bets = await Bet.findAll({
+    where: { roundId: round.id, payoutCentimos: { [Op.gt]: 0 } },
+    order: [["seq", "ASC"]],
+  });
+  return {
+    seq: round.seq,
+    winners: bets.map((b) => ({
+      betId: b.id,
+      playerName: b.playerName,
+      phone: b.phone,
+      payoutCentimos: b.payoutCentimos,
+      method: b.method,
+      status: b.paidAt ? "PAGADA" : "PENDIENTE",
+      paidOperationNumber: b.paidOperationNumber,
+      paidAt: b.paidAt,
+    })),
+  };
+}
+
+// R25: marca el premio como pagado con el nº de operación del envío.
+export async function payBet(room, betId, operationNumber) {
+  return sequelize.transaction(async (transaction) => {
+    const bet = await Bet.findByPk(betId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!bet) {
+      return { error: "apuesta no encontrada", status: 404 };
+    }
+    bet.round = await Round.findByPk(bet.roundId, { transaction });
+    if (bet.round.roomId !== room.id) {
+      return { error: "apuesta no encontrada", status: 404 };
+    }
+    if (bet.payoutCentimos === null || bet.payoutCentimos === 0) {
+      return { error: "la apuesta no tiene premio", status: 409 };
+    }
+    if (bet.paidAt !== null) {
+      return { error: "el premio ya fue pagado", status: 409 };
+    }
+    bet.paidOperationNumber = operationNumber;
+    bet.paidAt = new Date();
+    await bet.save({ transaction });
+    return { round: bet.round, bet };
+  }).then((result) => {
+    if (result.round) emit(room.code, result.round);
+    return result;
+  });
+}
+
+// R26: desglose contable de una ronda. Lo recibido queda trazado en tres
+// destinos: bolsa (pooled), espera arrastrada (carried) y devuelto (refunded).
+// Anuladas se reportan aparte: si estaban en bolsa, la casa las conserva
+// hasta procesarlas (saldo a favor) — la devolución real es aparte.
+export async function roundAccounting(room, seq) {
+  const round = await Round.findOne({ where: { roomId: room.id, seq } });
+  if (!round) return null;
+  const bets = await Bet.findAll({ where: { roundId: round.id } });
+  const sum = (list) => list.reduce((a, b) => a + b.amountCentimos, 0);
+  const pooled = sum(bets.filter((b) => b.status === "POOL"));
+  // Las partidas por equalize (POOL con parent) ya cuentan por su monto final.
+  const carriedRows = await Bet.findAll({
+    where: { originRoundId: round.id, status: BET_STATUS.QUEUED },
+  });
+  const carried = sum(carriedRows);
+  const refunded = sum(bets.filter((b) => b.status === "DEVUELTA"));
+  const anulled = sum(bets.filter((b) => b.status === "ANULADA"));
+  const paidOut = bets
+    .filter((b) => b.status === "POOL" && b.payoutCentimos > 0)
+    .reduce((a, b) => a + b.payoutCentimos, 0);
+  return {
+    seq: round.seq,
+    state: round.state,
+    // Toda la plata registrada en la ronda: bolsa + espera + devuelto +
+    // anulado (conservado por la casa como saldo a favor pendiente).
+    received: pooled + carried + refunded + anulled,
+    pooled,
+    carried,
+    refunded,
+    anulled,
+    paidOut,
+    kept: pooled - paidOut,
   };
 }
 
