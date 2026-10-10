@@ -10,8 +10,8 @@ echo "=== api: install ==="
 (cd api && npm ci)
 echo "=== api: lint ==="
 (cd api && npm run lint)
-echo "=== api: migrate ==="
-(cd api && npm run db:migrate)
+echo "=== api: migrate (dev + test) ==="
+(cd api && npm run db:migrate && NODE_ENV=test npm run db:migrate)
 echo "=== api: test ==="
 (cd api && npm test)
 

@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { loginAdmin, loginCashier } from "@/lib/api";
 import { saveSession } from "@/lib/auth";
 
@@ -20,6 +22,7 @@ function field(value: string, set: (v: string) => void, props: object) {
 
 export default function LoginPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const [adminUser, setAdminUser] = useState("");
   const [adminPass, setAdminPass] = useState("");
@@ -41,6 +44,9 @@ export default function LoginPage() {
         return;
       }
       saveSession(res.data.token, res.data.user);
+      // Descarta respuestas cacheadas de sesiones anteriores (p. ej. un 401
+      // de /auth/me) para que no invaliden el token recién guardado.
+      queryClient.clear();
       router.push(res.data.user.role === "admin" ? "/admin" : "/cajero");
     } catch {
       setError("No se pudo contactar la API");

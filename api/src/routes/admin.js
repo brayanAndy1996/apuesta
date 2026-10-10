@@ -20,21 +20,41 @@ const patchSchema = z
   })
   .refine((data) => Object.keys(data).length > 0, { message: "nada que actualizar" });
 
-// Genera un username único a partir del nombre: "Rosa Quispe" → "rosa.quispe"
-// (o "rosa.quispe2", "rosa.quispe3", … si ya existe).
-async function uniqueUsername(name) {
+const USERNAME_MAX = 64;
+const USERNAME_BASE_MAX = 48; // deja margen para sufijos numéricos
+
+function usernameBase(name) {
   const base = name
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // quita marcas diacríticas (á→a, ñ→n)
     .replace(/[^a-z0-9]+/g, ".")
-    .replace(/^\.|\.$/g, "") || "cajero";
+    .replace(/^\.|\.$/g, "")
+    .slice(0, USERNAME_BASE_MAX)
+    .replace(/\.$/, "");
+  return base || "cajero";
+}
 
+// Inserta el cajero con username único derivado del nombre. Reintenta con
+// sufijo si otro request gana la carrera por el mismo username.
+async function createCashierWithUsername({ name, credentialHash }) {
+  const base = usernameBase(name);
   let candidate = base;
   for (let i = 2; ; i += 1) {
-    const exists = await User.findOne({ where: { username: candidate } });
-    if (!exists) return candidate;
-    candidate = `${base}${i}`;
+    try {
+      return await User.create({
+        role: ROLES.CASHIER,
+        username: candidate.slice(0, USERNAME_MAX),
+        name,
+        credentialHash,
+      });
+    } catch (err) {
+      if (err.name === "SequelizeUniqueConstraintError") {
+        candidate = `${base}${i}`.slice(0, USERNAME_MAX);
+        continue;
+      }
+      throw err;
+    }
   }
 }
 
@@ -49,9 +69,7 @@ adminRouter.post("/cashiers", async (req, res, next) => {
   }
   try {
     const { name, pin: rawPin } = parsed.data;
-    const user = await User.create({
-      role: ROLES.CASHIER,
-      username: await uniqueUsername(name),
+    const user = await createCashierWithUsername({
       name,
       credentialHash: await hashCredential(rawPin),
     });

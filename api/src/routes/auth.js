@@ -8,6 +8,11 @@ import { publicUser, ROLES, User } from "../models/user.js";
 
 const INVALID = { error: "credenciales inválidas" };
 
+// Hash scrypt válido de un valor dummy: hace que un login con usuario
+// inexistente cueste lo mismo que uno real y no filtre usuarios por tiempo.
+const DUMMY_HASH =
+  "scrypt$16384$8$1$1t7ZWRnkBOY7nPKkdb0JOQ==$8GyOFR7eB0SNqq0kYspdnhad3luXOhjGvZOm8v5vHHnAfMwBlv7uDFmAa2/J/N+9qRLLzq5CEq52oUKMjZ05og==";
+
 const loginSchema = z.object({
   username: z.string().min(1).max(64),
   password: z.string().min(1).max(128),
@@ -24,7 +29,7 @@ async function loginWithRole(req, res, role, credential) {
     where: { username, role },
   });
   // Compara igual aunque el usuario no exista para no filtrar usernames por tiempo.
-  const stored = user?.credentialHash ?? "$invalid$";
+  const stored = user?.credentialHash ?? DUMMY_HASH;
   const ok = user && user.active && (await verifyCredential(credential, stored));
   if (!ok) {
     return res.status(401).json(INVALID);

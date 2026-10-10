@@ -30,8 +30,14 @@ const config = {
   logging: process.env.DB_LOGGING === "true" ? console.log : false,
 };
 
+// Los tests corren sobre una BD dedicada: nunca tocan la de desarrollo.
+const testConfig = {
+  ...config,
+  database: process.env.TEST_DATABASE ?? `${config.database}_test`,
+};
+
 export default {
   development: config,
-  test: config,
+  test: testConfig,
   production: config,
 };
