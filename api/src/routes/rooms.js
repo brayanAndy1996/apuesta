@@ -15,6 +15,7 @@ import {
   refundBet,
   roundAccounting,
   roundBetsView,
+  statsView,
   winnersView,
 } from "../services/roundService.js";
 
@@ -85,6 +86,19 @@ roomsRouter.get("/:code/public-bets", async (req, res, next) => {
       return res.status(404).json({ error: "sala no encontrada" });
     }
     res.json(await publicBetsView(room));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// R28: estadísticas reales vs esperadas de los resultados.
+roomsRouter.get("/:code/stats", async (req, res, next) => {
+  try {
+    const room = await findRoomByCode(req.params.code);
+    if (!room) {
+      return res.status(404).json({ error: "sala no encontrada" });
+    }
+    res.json(await statsView(room));
   } catch (err) {
     next(err);
   }

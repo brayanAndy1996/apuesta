@@ -552,6 +552,37 @@ export async function currentRoundView(room) {
   };
 }
 
+// R28: distribución real de resultados frente a la esperada por pesos.
+export async function statsView(room) {
+  const [rounds, slots] = await Promise.all([
+    Round.findAll({ where: { roomId: room.id, state: LIQUIDADA } }),
+    room.getSlots(),
+  ]);
+  const counts = new Map();
+  const perColor = { red: 0, blue: 0 };
+  for (const r of rounds) {
+    if (!r.resultSlotId) continue;
+    counts.set(r.resultSlotId, (counts.get(r.resultSlotId) ?? 0) + 1);
+    const slot = slots.find((s) => s.id === r.resultSlotId);
+    if (slot) perColor[slot.side] += 1;
+  }
+  const n = rounds.length;
+  return {
+    rounds: n,
+    perColor,
+    slots: slots.map((s) => ({
+      id: s.id,
+      side: s.side,
+      multiplier: s.multiplier,
+      weight: s.weight,
+      realCount: counts.get(s.id) ?? 0,
+      expectedCount: n * (s.weight / 100),
+      expectedPct: s.weight,
+      realPct: n ? ((counts.get(s.id) ?? 0) / n) * 100 : null,
+    })),
+  };
+}
+
 // Vista pública (R27): apuestas de la ronda abierta con datos enmascarados.
 // Incluye la bandeja "sin color" (side=null); excluye ANULADA/DEVUELTA.
 export async function publicBetsView(room) {
