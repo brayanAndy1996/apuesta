@@ -231,6 +231,31 @@ paths:
                 properties:
                   round: { $ref: "#/components/schemas/RoundView" }
         "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/rounds:
+    get:
+      operationId: listRounds
+      summary: Historial público de rondas de la sala (más reciente primero)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Rondas recientes; la semilla solo aparece en LIQUIDADA (R8)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rounds]
+                properties:
+                  rounds:
+                    type: array
+                    items: { $ref: "#/components/schemas/RoundSummary" }
+        "404": { description: Sala no encontrada o inactiva }
   /rooms/{code}/bets:
     post:
       operationId: placeBet
@@ -536,3 +561,26 @@ components:
         girandoEndsAt: { type: string, format: date-time, nullable: true }
         seedHash: { type: string, description: SHA-256 de la semilla, publicado antes del sorteo }
         resultSlotId: { type: string, format: uuid, nullable: true }
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/RoomSlot"
+            - type: "null"
+          description: Casilla ganadora una vez guardado el resultado (GIRANDO o posterior)
+    RoundSummary:
+      type: object
+      required: [seq, state, seedHash]
+      properties:
+        seq: { type: integer }
+        state:
+          type: string
+          enum: [ESPERANDO, CUENTA_REGRESIVA, PAUSADA, CERRADA, GIRANDO, LIQUIDADA]
+        seedHash: { type: string }
+        seed:
+          type: string
+          nullable: true
+          description: Semilla revelada; solo presente cuando state = LIQUIDADA
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/RoomSlot"
+            - type: "null"
+        createdAt: { type: string, format: date-time }

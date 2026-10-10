@@ -1,6 +1,7 @@
 import { Op, QueryTypes } from "sequelize";
 
 import { sequelize } from "../db.js";
+import { drawSlot } from "../domain/draw.js";
 import { createPool, drain, equalize, isSecure, maxMultiplier, missingFor } from "../domain/pool.js";
 import { newSeed, seedHash } from "../lib/seed.js";
 import { Room } from "../models/room.js";
@@ -30,7 +31,9 @@ const emit = (roomCode, round, extra = {}) => {
     pools: { red: round.poolRedCentimos, blue: round.poolBlueCentimos },
     countdownEndsAt: round.countdownEndsAt,
     maxEndsAt: round.maxEndsAt,
+    girandoEndsAt: round.girandoEndsAt,
     seedHash: round.seedHash,
+    resultSlotId: round.resultSlotId,
     ...extra,
   });
 };
@@ -207,7 +210,7 @@ async function placeBetOnce(room, { side, amountCentimos }, now) {
       const { spun } = equalize(state);
       if (spun) {
         await persistState(round, snapshot, state, transaction);
-        closeAndSpin(round, now);
+        closeAndSpin(round, await room.getSlots({ transaction }), now);
       }
     }
     await round.save({ transaction });
@@ -221,10 +224,15 @@ async function placeBetOnce(room, { side, amountCentimos }, now) {
   });
 }
 
-const closeAndSpin = (round, now) => {
+// R9: el resultado se guarda ANTES de la animación (CERRADA → GIRANDO) y
+// jamás se resortea: si resultSlotId ya está poblado no se recalcula.
+const closeAndSpin = (round, slots, now) => {
+  if (!round.resultSlotId) {
+    const { slot } = drawSlot(round.seed, slots);
+    round.resultSlotId = slot.id;
+  }
   round.state = CERRADA;
   round.countdownEndsAt = null;
-  // CERRADA → GIRANDO de inmediato: en la 006 aquí se guarda el resultado.
   round.state = GIRANDO;
   round.girandoEndsAt = new Date(now.getTime() + SPIN_MS);
 };
@@ -293,14 +301,14 @@ export async function processExpiredRounds(now = new Date()) {
         const { spun } = equalize(state);
         if (spun) {
           await persistState(locked, snapshot, state, transaction);
-          closeAndSpin(locked, now);
+          closeAndSpin(locked, await room.getSlots({ transaction }), now);
           processed.push({ roundId: locked.id, action: "equalized" });
         } else {
           locked.maxExpired = true;
           processed.push({ roundId: locked.id, action: "max_expired" });
         }
       } else if (countdownDue) {
-        closeAndSpin(locked, now);
+        closeAndSpin(locked, await room.getSlots({ transaction }), now);
         processed.push({ roundId: locked.id, action: "closed" });
       } else {
         return;
@@ -312,6 +320,12 @@ export async function processExpiredRounds(now = new Date()) {
   return processed;
 }
 
+const publicSlot = (slot) =>
+  slot ? { id: slot.id, side: slot.side, multiplier: slot.multiplier, weight: slot.weight } : null;
+
+const resultOf = (round, slots) =>
+  publicSlot(slots.find((s) => s.id === round.resultSlotId));
+
 // Vista pública de la ronda actual de una sala.
 export async function currentRoundView(room) {
   const round = await Round.findOne({
@@ -319,7 +333,10 @@ export async function currentRoundView(room) {
     order: [["seq", "DESC"]],
   });
   const open = round ?? (await sequelize.transaction((t) => lockOpenRound(room, t)));
-  const state = await loadPoolState(room, open);
+  const [state, slots] = await Promise.all([
+    loadPoolState(room, open),
+    room.getSlots(),
+  ]);
   return {
     seq: open.seq,
     state: open.state,
@@ -337,5 +354,26 @@ export async function currentRoundView(room) {
     girandoEndsAt: open.girandoEndsAt,
     seedHash: open.seedHash,
     resultSlotId: open.resultSlotId,
+    result: resultOf(open, slots),
   };
+}
+
+// Historial público: la semilla solo se expone una vez LIQUIDADA (R8).
+export async function recentRoundsView(room, limit = 20) {
+  const [rounds, slots] = await Promise.all([
+    Round.findAll({
+      where: { roomId: room.id },
+      order: [["seq", "DESC"]],
+      limit,
+    }),
+    room.getSlots(),
+  ]);
+  return rounds.map((r) => ({
+    seq: r.seq,
+    state: r.state,
+    seedHash: r.seedHash,
+    seed: r.state === LIQUIDADA ? r.seed : null,
+    result: resultOf(r, slots),
+    createdAt: r.createdAt,
+  }));
 }
