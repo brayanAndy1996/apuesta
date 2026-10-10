@@ -43,7 +43,7 @@ before(async () => {
 });
 
 after(async () => {
-  server.close();
+  server?.close();
   await User.destroy({ where: {} });
   await sequelize.close();
 });
