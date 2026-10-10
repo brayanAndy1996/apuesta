@@ -1,0 +1,37 @@
+openapi: 3.1.0
+info:
+  title: Ruleta Rápida API
+  version: "0.1.0"
+  description: |
+    Contrato HTTP entre `web/` y `api/`.
+    La web genera sus tipos con `openapi-typescript` a partir de este archivo.
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Estado del servicio y de la base de datos
+      responses:
+        "200":
+          description: Servicio sano
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: Servicio degradado (sin base de datos)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, db]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        db:
+          type: string
+          enum: [up, down]

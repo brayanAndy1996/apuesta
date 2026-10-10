@@ -85,12 +85,13 @@ sala = room, ronda = round, apuesta = bet, bolsa = pool, color = side (red, blue
 ## 5. Arquitectura
 
 ```
-apuestas/                ← carpeta coordinadora (Claude corre aquí)
-├── CLAUDE.md, docs/ (planificacion, specs, decisions, api/openapi.yaml, PROGRESS)
-├── .claude/agents/      ← subagentes con su modelo asignado
-├── api/  (repo git)     Node 24 LTS, Express 5, Sequelize + migraciones, PostgreSQL 17, Socket.IO, Zod
-└── web/  (repo git)     Next.js (App Router), Tailwind, TanStack Query, socket.io-client
+apuesta/                 ← repo coordinador (Devin corre aquí)
+├── AGENTS.md, docs/ (planificacion, specs, decisions, api/openapi.yaml, PROGRESS)
+├── api/               Node 24 LTS, Express 5, Sequelize + migraciones, PostgreSQL 17, Socket.IO, Zod
+└── web/               Next.js (App Router), Tailwind, TanStack Query, socket.io-client
 ```
+
+api/ y web/ son carpetas del mismo repo por ahora; si más adelante se separan en repos propios, el contenido se migra tal cual.
 
 - **Contrato:** `docs/api/openapi.yaml`. La web genera sus tipos con openapi-typescript.
 - **Dominio puro** en `api/src/domain/` (seguridad de la bolsa, cola, igualación, redondeo, sorteo), sin base de datos y con pruebas de propiedades (fast-check).
@@ -98,17 +99,19 @@ apuestas/                ← carpeta coordinadora (Claude corre aquí)
 - **Temporizadores:** el servidor es la autoridad. Los plazos se guardan en la base de datos para sobrevivir a un reinicio.
 - **Tiempo real:** Socket.IO con un canal por sala.
 
-## 6. Roles (subagentes) y modelos
+## 6. Roles (equivalentes en Devin)
 
-| Rol | Modelo |
+No hay subagentes por modelo: todas las sesiones corren con el modelo de Devin. Los roles se diferencian por **función** y se materializan como prompts de sesiones hijas de Devin (cada una en su propia VM) o como trabajo directo de la sesión orquestadora:
+
+| Rol | Cómo se ejecuta en Devin |
 |---|---|
-| Orquestador | Opus |
-| spec-writer | Opus |
-| test-writer | Sonnet (Opus para dominio y liquidación) |
-| backend-dev / frontend-dev | Sonnet |
-| test-runner (ejecuta y resume) | Haiku |
-| adversarial-tester | Opus |
-| reviewer | Opus |
+| Orquestador | La sesión principal de Devin: escribe specs, coordina hijos, revisa y fusiona |
+| spec-writer | Sesión principal (una spec por vez, en `docs/specs/`) |
+| test-writer | Sesión hija o directo, según tamaño de la spec |
+| backend-dev / frontend-dev | Sesiones hijas en paralelo para specs grandes |
+| test-runner | Comandos de la spec (`npm test`, lint, build) ejecutados por cualquier sesión |
+| adversarial-tester | Sesión hija con prompt de testing adversarial sobre el PR |
+| reviewer | Revisión por la sesión orquestadora + Devin Review en el PR |
 
 ## 7. Specs
 
