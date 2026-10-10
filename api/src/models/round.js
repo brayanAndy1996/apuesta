@@ -1,4 +1,4 @@
-import { Model, DataTypes } from "sequelize";
+import { Model, DataTypes, Op } from "sequelize";
 
 import { sequelize } from "../db.js";
 import { Room } from "./room.js";
@@ -22,7 +22,14 @@ export const COUNTDOWN_MS = 60_000;
 export const MAX_ROUND_MS = 300_000;
 export const SPIN_MS = 7_000;
 
-export const BET_STATUS = Object.freeze({ QUEUED: "QUEUED", POOL: "POOL" });
+export const BET_STATUS = Object.freeze({
+  QUEUED: "QUEUED",
+  POOL: "POOL",
+  ANULADA: "ANULADA",
+  DEVUELTA: "DEVUELTA",
+});
+
+export const PAYMENT_METHODS = Object.freeze({ YAPE: "yape", PLIN: "plin" });
 
 export class Round extends Model {}
 
@@ -76,20 +83,54 @@ Bet.init(
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     roundId: { type: DataTypes.UUID, allowNull: false, field: "round_id" },
     seq: { type: DataTypes.INTEGER, allowNull: false },
-    side: { type: DataTypes.ENUM("red", "blue"), allowNull: false },
+    // null = bandeja "Sin color" (R22): aún no entra a la cola del dominio.
+    side: { type: DataTypes.ENUM("red", "blue"), allowNull: true },
     amountCentimos: {
       type: DataTypes.INTEGER,
       allowNull: false,
       field: "amount_centimos",
     },
     status: {
-      type: DataTypes.ENUM(BET_STATUS.QUEUED, BET_STATUS.POOL),
+      type: DataTypes.ENUM(...Object.values(BET_STATUS)),
       allowNull: false,
       defaultValue: BET_STATUS.QUEUED,
     },
     parentBetId: { type: DataTypes.UUID, allowNull: true, field: "parent_bet_id" },
+    playerName: { type: DataTypes.STRING(160), allowNull: true, field: "player_name" },
+    phone: { type: DataTypes.STRING(32), allowNull: true },
+    method: {
+      type: DataTypes.ENUM(...Object.values(PAYMENT_METHODS)),
+      allowNull: true,
+    },
+    operationNumber: { type: DataTypes.STRING(64), allowNull: true, field: "operation_number" },
+    paymentVerified: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: "payment_verified",
+    },
+    cashierId: { type: DataTypes.UUID, allowNull: true, field: "cashier_id" },
+    annulReason: { type: DataTypes.TEXT, allowNull: true, field: "annul_reason" },
+    refundOperationNumber: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      field: "refund_operation_number",
+    },
   },
-  { sequelize, modelName: "bet", tableName: "bets", underscored: true },
+  {
+    sequelize,
+    modelName: "bet",
+    tableName: "bets",
+    underscored: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ["method", "operation_number"],
+        name: "bets_operation_unique",
+        where: { operation_number: { [Op.ne]: null } },
+      },
+    ],
+  },
 );
 
 Round.belongsTo(Room, { foreignKey: "roomId", as: "room" });
