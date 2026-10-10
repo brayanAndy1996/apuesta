@@ -27,7 +27,7 @@ Reglas cubiertas: R14, R15, R16, R17. Depende de la 003 (salas) y la 004 (domini
 
 ## Eventos Socket.IO
 
-Sala `room:<code>`: `round:update` con `{ seq, state, pools, queued, missing, countdownEndsAt, maxEndsAt, seedHash }`.
+Sala `room:<code>`: `round:update` con `{ seq, state, pools, countdownEndsAt, maxEndsAt, girandoEndsAt, seedHash }`. El evento es el tick en vivo; el detalle de colas (`queued`, `missing`) se consulta en `GET /rooms/:code/round`.
 
 ## Endpoints
 

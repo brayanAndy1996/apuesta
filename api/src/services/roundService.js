@@ -141,29 +141,34 @@ async function lockOpenRound(room, transaction) {
     transaction,
   });
   const seed = newSeed();
-  try {
-    return await Round.create(
-      {
-        roomId: room.id,
-        seq: (last ?? 0) + 1,
-        state: ESPERANDO,
-        seed,
-        seedHash: seedHash(seed),
-      },
-      { transaction },
-    );
-  } catch (err) {
-    // Otra transacción creó la ronda abierta primero (índice parcial único).
-    if (err.name === "SequelizeUniqueConstraintError") {
-      const retry = await findOpenRound(room, transaction);
-      if (retry) return retry;
-    }
-    throw err;
-  }
+  return Round.create(
+    {
+      roomId: room.id,
+      seq: (last ?? 0) + 1,
+      state: ESPERANDO,
+      seed,
+      seedHash: seedHash(seed),
+    },
+    { transaction },
+  );
 }
 
 // Registra una apuesta y drena la bolsa. Devuelve { round, bet }.
+// Reintenta una vez si otra transacción creó la ronda abierta primero
+// (índice parcial rounds_one_open_per_room): tras un error, la transacción
+// de Postgres queda abortada, así que el retry cubre la transacción entera.
 export async function placeBet(room, { side, amountCentimos }, now = new Date()) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await placeBetOnce(room, { side, amountCentimos }, now);
+    } catch (err) {
+      if (attempt === 0 && err.name === "SequelizeUniqueConstraintError") continue;
+      throw err;
+    }
+  }
+}
+
+async function placeBetOnce(room, { side, amountCentimos }, now) {
   return sequelize.transaction(async (transaction) => {
     const round = await lockOpenRound(room, transaction);
     const [seqRow] = await sequelize.query(
