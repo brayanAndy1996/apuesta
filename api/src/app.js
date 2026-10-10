@@ -1,10 +1,18 @@
+import cors from "cors";
 import express from "express";
 
 import { sequelize } from "./db.js";
+import { adminRouter } from "./routes/admin.js";
+import { authRouter } from "./routes/auth.js";
 
 export function createApp() {
   const app = express();
 
+  app.use(
+    cors({
+      origin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+    }),
+  );
   app.use(express.json());
 
   app.get("/health", async (_req, res) => {
@@ -14,6 +22,16 @@ export function createApp() {
     } catch {
       res.status(503).json({ status: "degraded", db: "down" });
     }
+  });
+
+  app.use("/auth", authRouter);
+  app.use("/admin", adminRouter);
+
+  app.use((_req, res) => res.status(404).json({ error: "no encontrado" }));
+
+  app.use((err, _req, res, _next) => {
+    console.error(err);
+    res.status(500).json({ error: "error interno" });
   });
 
   return app;

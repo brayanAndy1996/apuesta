@@ -1,11 +1,10 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+// sequelize-cli carga este archivo con require(): debe ser CommonJS
+// aunque el resto del proyecto es ESM.
+const path = require("node:path");
 
-const root = path.dirname(fileURLToPath(import.meta.url));
-
-export default {
-  config: path.resolve(root, "src", "config.js"),
-  "models-path": path.resolve(root, "src", "models"),
-  "migrations-path": path.resolve(root, "migrations"),
-  "seeders-path": path.resolve(root, "seeders"),
+module.exports = {
+  config: path.resolve(__dirname, "src", "config.js"),
+  "models-path": path.resolve(__dirname, "src", "models"),
+  "migrations-path": path.resolve(__dirname, "migrations"),
+  "seeders-path": path.resolve(__dirname, "seeders"),
 };
