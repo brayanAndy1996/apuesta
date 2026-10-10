@@ -87,6 +87,14 @@ paths:
                 properties:
                   user:
                     $ref: "#/components/schemas/User"
+                  room:
+                    oneOf:
+                      - type: object
+                        properties:
+                          code: { type: string }
+                          name: { type: string }
+                      - type: "null"
+                    description: Sala que atiende el cajero (null para admin)
         "401": { description: Token ausente o inválido }
   /admin/cashiers:
     post:
@@ -257,9 +265,40 @@ paths:
                     items: { $ref: "#/components/schemas/RoundSummary" }
         "404": { description: Sala no encontrada o inactiva }
   /rooms/{code}/bets:
+    get:
+      operationId: listRoundBets
+      summary: Bandeja del cajero — apuestas de la ronda abierta (spec 007)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 'Apuestas con datos del jugador y estado; `side: null` = bandeja "Sin color"'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seq: { type: integer, nullable: true }
+                  state: { type: string, nullable: true }
+                  open: { type: boolean }
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/CashierBet" }
+        "401": { description: Sin token }
+        "403": { description: Cajero no asignado a la sala ni admin }
+        "404": { description: Sala no encontrada o inactiva }
     post:
       operationId: placeBet
-      summary: Registrar apuesta en la bolsa (provisional hasta la spec 007)
+      summary: Registro rápido del cajero (R19–R22)
+      description: |
+        Requiere `paymentVerified: true` (R19). El `operationNumber` es único por
+        método (R20). Si `amountCentimos` supera el máximo de la sala se registra
+        por el tope y el excedente queda como otra apuesta en espera (R21).
+        `side: null` envía el pago a la bandeja "Sin color" (R22).
       security: [{ bearerAuth: [] }]
       parameters:
         - name: code
@@ -272,37 +311,167 @@ paths:
           application/json:
             schema:
               type: object
-              required: [side, amountCentimos]
+              required: [amountCentimos, playerName, phone, method, operationNumber, paymentVerified]
               properties:
-                side: { type: string, enum: [red, blue] }
+                side:
+                  oneOf:
+                    - type: string
+                      enum: [red, blue]
+                    - type: "null"
                 amountCentimos: { type: integer, minimum: 1 }
+                playerName: { type: string, maxLength: 160 }
+                phone: { type: string, maxLength: 32 }
+                method: { type: string, enum: [yape, plin] }
+                operationNumber: { type: string, maxLength: 64 }
+                paymentVerified: { type: boolean, enum: [true] }
       responses:
         "201":
-          description: Apuesta registrada
+          description: Apuesta(s) registrada(s) — una por el tope y otra por el excedente si aplica
           content:
             application/json:
               schema:
                 type: object
-                required: [bet, round]
+                required: [bets, round]
                 properties:
-                  bet:
-                    type: object
-                    properties:
-                      id: { type: string, format: uuid }
-                      seq: { type: integer }
-                      side: { type: string, enum: [red, blue] }
-                      amountCentimos: { type: integer }
-                      status: { type: string, enum: [QUEUED, POOL] }
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/CashierBet" }
                   round:
                     type: object
                     properties:
                       seq: { type: integer }
                       state: { type: string }
-        "400": { description: Datos inválidos }
+        "400": { description: Datos inválidos (incluye paymentVerified ≠ true) }
         "401": { description: Sin token }
         "403": { description: Cajero no asignado a la sala ni admin }
         "404": { description: Sala no encontrada o inactiva }
-        "422": { description: Monto fuera del rango de la sala }
+        "409": { description: Número de operación duplicado para el método (R20) }
+        "422": { description: Monto por debajo del mínimo de la sala }
+  /rooms/{code}/bets/{betId}:
+    patch:
+      operationId: assignBetSide
+      summary: Asignar color a una apuesta de la bandeja "Sin color" (R22)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: betId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [side]
+              properties:
+                side: { type: string, enum: [red, blue] }
+      responses:
+        "200":
+          description: Apuesta encolada/drenada con el color elegido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+                  round: { type: object, properties: { seq: { type: integer }, state: { type: string } } }
+        "400": { description: Datos inválidos }
+        "403": { description: Sin permiso }
+        "404": { description: Sala o apuesta no encontrada }
+        "409": { description: Ya tiene color o la ronda está cerrada }
+  /rooms/{code}/bets/{betId}/annul:
+    post:
+      operationId: annulBet
+      summary: Anular una apuesta con motivo, solo antes del cierre (R23)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: betId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: Apuesta anulada; si estaba en bolsa se descuenta y puede pausar la ronda
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+                  round: { type: object, properties: { seq: { type: integer }, state: { type: string } } }
+        "400": { description: Motivo requerido }
+        "403": { description: Sin permiso }
+        "404": { description: Sala o apuesta no encontrada }
+        "409": { description: Ronda cerrada o apuesta ya anulada/devuelta }
+  /rooms/{code}/bets/{betId}/refund:
+    post:
+      operationId: refundBet
+      summary: Devolver una apuesta en espera con nº de devolución (R24)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: betId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refundOperationNumber]
+              properties:
+                refundOperationNumber: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: Apuesta marcada DEVUELTA
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+                  round: { type: object, properties: { seq: { type: integer }, state: { type: string } } }
+        "400": { description: Nº de devolución requerido }
+        "403": { description: Sin permiso }
+        "404": { description: Sala o apuesta no encontrada }
+        "409": { description: No está en espera o la ronda está cerrada }
+  /rooms/{code}/bets/parse-message:
+    post:
+      operationId: parseBetMessage
+      summary: Autocompletar campos desde el mensaje de WhatsApp (R19, heurística)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, maxLength: 2000 }
+      responses:
+        "200":
+          description: Campos detectados (puede faltar alguno)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  parsed:
+                    type: object
+                    properties:
+                      side: { type: string, enum: [red, blue] }
+                      amountCentimos: { type: integer }
+                      playerName: { type: string }
+                      phone: { type: string }
+        "403": { description: Sin permiso }
   /admin/rooms:
     get:
       operationId: listRooms
@@ -584,3 +753,30 @@ components:
             - $ref: "#/components/schemas/RoomSlot"
             - type: "null"
         createdAt: { type: string, format: date-time }
+    CashierBet:
+      type: object
+      required: [id, seq, amountCentimos, status]
+      properties:
+        id: { type: string, format: uuid }
+        seq: { type: integer }
+        side:
+          oneOf:
+            - type: string
+              enum: [red, blue]
+            - type: "null"
+          description: null = bandeja "Sin color" (R22)
+        amountCentimos: { type: integer }
+        status:
+          type: string
+          enum: [QUEUED, POOL, ANULADA, DEVUELTA]
+        playerName: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        method:
+          oneOf:
+            - type: string
+              enum: [yape, plin]
+            - type: "null"
+        operationNumber: { type: string, nullable: true }
+        paymentVerified: { type: boolean }
+        annulReason: { type: string, nullable: true }
+        refundOperationNumber: { type: string, nullable: true }

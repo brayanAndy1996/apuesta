@@ -15,6 +15,22 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 007)
+
+- `bets` extendida: player_name, phone, method (yape|plin), operation_number
+  (único por método, índice parcial), payment_verified, cashier_id,
+  annul_reason, refund_operation_number; `side` nullable = bandeja "Sin color"
+  (fuera de la cola del dominio); status += ANULADA, DEVUELTA.
+- `roundService`: placeBet acepta el payload completo y parte el excedente
+  sobre `maxBetCentimos` en otra QUEUED del mismo color (R21). `assignBetSide`,
+  `annulBet` (descuenta del pool y puede pausar, solo ronda abierta),
+  `refundBet` (solo QUEUED), `roundBetsView` para la bandeja.
+- `parseBetMessage` (`lib/betMessage.js`) autocompleta desde el mensaje R18.
+- `/auth/me` devuelve `room` al cajero. UI `/cajero`: formulario con pegado,
+  bandeja sin color, acciones anular/devolver.
+- Gotcha: los ENUM de Postgres no crecen con changeColumn → usar
+  `ALTER TYPE ... ADD VALUE IF NOT EXISTS`.
+
 ## Estado (al terminar spec 006)
 
 - Sorteo: `api/src/domain/draw.js` — `pos = BigInt("0x"+seed) % 100` sobre el
