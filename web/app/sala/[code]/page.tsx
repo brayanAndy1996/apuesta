@@ -13,6 +13,7 @@ import {
   type PublicRound,
 } from "@/lib/api";
 import { roomSocket } from "@/lib/socket";
+import { BetForm } from "./BetForm";
 
 const soles = (centimos: number) => `S/ ${(centimos / 100).toFixed(2)}`;
 const hora = (iso: string) =>
@@ -230,6 +231,21 @@ export default function SalaPublica() {
         </h2>
         <BetList bets={bets.data?.data?.bets ?? []} />
       </section>
+
+      <section className="mt-6">
+        {room.data?.data?.room && <BetForm code={codeUp} room={room.data.data.room} />}
+      </section>
+
+      {room.data?.data?.room?.whatsapp && (
+        <a
+          className="fixed bottom-4 right-4 rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg"
+          href={`https://wa.me/${room.data.data.room.whatsapp.replace(/\D/g, "")}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Consultas WhatsApp
+        </a>
+      )}
     </main>
   );
 }

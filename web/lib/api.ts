@@ -161,14 +161,40 @@ export type PublicBet = {
   winRangeCentimos: MissingRange | null;
 };
 
+export type PublicRoom = {
+  id: string;
+  code: string;
+  name: string;
+  whatsapp: string | null;
+  yapeQr: string | null;
+  plinQr: string | null;
+  minBetCentimos: number;
+  maxBetCentimos: number;
+};
+
 export async function getPublicRoom(code: string) {
-  return request<{ room: { code: string; name: string }; slots: RoomSlot[] }>(
+  return request<{ room: PublicRoom; slots: RoomSlot[] }>(
     `/rooms/${code}`,
   );
 }
 
 export async function getPublicRound(code: string) {
   return request<{ round: PublicRound }>(`/rooms/${code}/round`);
+}
+
+export async function getBetMessage(
+  code: string,
+  params: { side?: "red" | "blue" | null; amountCentimos: number; playerName: string; phone: string },
+) {
+  const q = new URLSearchParams({
+    amountCentimos: String(params.amountCentimos),
+    playerName: params.playerName,
+    phone: params.phone,
+    ...(params.side ? { side: params.side } : {}),
+  });
+  return request<{ message: string; whatsappUrl: string }>(
+    `/rooms/${code}/bet-message?${q}`,
+  );
 }
 
 export async function getPublicBets(code: string) {
