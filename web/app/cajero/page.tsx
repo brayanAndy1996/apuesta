@@ -10,10 +10,13 @@ import {
   assignBetSide,
   getMe,
   listBets,
+  listWinners,
   parseMessage,
+  payWinner,
   refundBet,
   registerBet,
   type Bet,
+  type Winner,
 } from "@/lib/api";
 import { clearSession, getStoredUser, getToken } from "@/lib/auth";
 
@@ -45,6 +48,13 @@ export default function CajeroPage() {
   const betsQuery = useQuery({
     queryKey: ["bets", code],
     queryFn: () => listBets(token ?? "", code ?? ""),
+    enabled: Boolean(token && code),
+    refetchInterval: 5000,
+  });
+
+  const winnersQuery = useQuery({
+    queryKey: ["winners", code],
+    queryFn: () => listWinners(token ?? "", code ?? ""),
     enabled: Boolean(token && code),
     refetchInterval: 5000,
   });
@@ -98,6 +108,7 @@ export default function CajeroPage() {
       if (res.status === 200) {
         setError(null);
         invalidate();
+        queryClient.invalidateQueries({ queryKey: ["winners", code] });
       } else {
         setError(apiError(res));
       }
@@ -240,6 +251,41 @@ export default function CajeroPage() {
               </ul>
             </section>
           )}
+
+          {(() => {
+            const winners: Winner[] = winnersQuery.data?.data?.winners ?? [];
+            const pending = winners.filter((w) => w.status === "PENDIENTE");
+            return winners.length > 0 ? (
+              <section className="mt-6">
+                <h2 className="font-semibold text-emerald-400">
+                  Ganadores por pagar — ronda {winnersQuery.data?.data?.seq}
+                  {pending.length > 0 && ` (${pending.length} pendientes)`}
+                </h2>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {winners.map((w) => (
+                    <li key={w.betId} className="flex items-center gap-2 rounded border border-emerald-900/50 p-2">
+                      <span className="flex-1">
+                        {w.playerName} · {w.phone} · <b>{soles(w.payoutCentimos)}</b>
+                      </span>
+                      {w.status === "PAGADA" ? (
+                        <span className="text-neutral-500">pagada · {w.paidOperationNumber}</span>
+                      ) : (
+                        <button
+                          className="rounded bg-emerald-700 px-2 py-1"
+                          onClick={() => {
+                            const op = window.prompt(`Nº de operación del ${w.method ?? "pago"} a ${w.playerName}`);
+                            if (op) action.mutate(() => payWinner(token ?? "", code, w.betId, op));
+                          }}
+                        >
+                          Marcar pagada
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null;
+          })()}
 
           <section className="mt-6">
             <h2 className="font-semibold">Apuestas de la ronda</h2>

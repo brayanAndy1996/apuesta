@@ -167,6 +167,32 @@ export async function refundBet(token: string, code: string, betId: string, refu
   });
 }
 
+export type Winner = {
+  betId: string;
+  playerName: string | null;
+  phone: string | null;
+  payoutCentimos: number;
+  method: "yape" | "plin" | null;
+  status: "PENDIENTE" | "PAGADA";
+  paidOperationNumber: string | null;
+};
+
+export async function listWinners(token: string, code: string, seq?: number) {
+  const q = seq === undefined ? "" : `?seq=${seq}`;
+  return request<{ seq: number | null; winners: Winner[] }>(
+    `/rooms/${code}/winners${q}`,
+    { token },
+  );
+}
+
+export async function payWinner(token: string, code: string, betId: string, operationNumber: string) {
+  return request<{ bet: Bet }>(`/rooms/${code}/bets/${betId}/pay`, {
+    method: "POST",
+    body: { operationNumber },
+    token,
+  });
+}
+
 export async function parseMessage(token: string, code: string, message: string) {
   return request<{
     parsed: {
