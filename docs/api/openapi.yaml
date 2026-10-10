@@ -211,6 +211,73 @@ paths:
                 properties:
                   room: { $ref: "#/components/schemas/Room" }
         "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/round:
+    get:
+      operationId: getCurrentRound
+      summary: Ronda actual de una sala (pública)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Ronda abierta (o la última no liquidada)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [round]
+                properties:
+                  round: { $ref: "#/components/schemas/RoundView" }
+        "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/bets:
+    post:
+      operationId: placeBet
+      summary: Registrar apuesta en la bolsa (provisional hasta la spec 007)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [side, amountCentimos]
+              properties:
+                side: { type: string, enum: [red, blue] }
+                amountCentimos: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Apuesta registrada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bet, round]
+                properties:
+                  bet:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      seq: { type: integer }
+                      side: { type: string, enum: [red, blue] }
+                      amountCentimos: { type: integer }
+                      status: { type: string, enum: [QUEUED, POOL] }
+                  round:
+                    type: object
+                    properties:
+                      seq: { type: integer }
+                      state: { type: string }
+        "400": { description: Datos inválidos }
+        "401": { description: Sin token }
+        "403": { description: Cajero no asignado a la sala ni admin }
+        "404": { description: Sala no encontrada o inactiva }
+        "422": { description: Monto fuera del rango de la sala }
   /admin/rooms:
     get:
       operationId: listRooms
@@ -428,3 +495,44 @@ components:
         slots:
           type: array
           items: { $ref: "#/components/schemas/RoomSlot" }
+    RoundView:
+      type: object
+      required: [seq, state, pools, queued, seedHash]
+      properties:
+        seq: { type: integer }
+        state:
+          type: string
+          enum: [ESPERANDO, CUENTA_REGRESIVA, PAUSADA, CERRADA, GIRANDO, LIQUIDADA]
+        pools:
+          type: object
+          properties:
+            red: { type: integer }
+            blue: { type: integer }
+        queued:
+          type: object
+          properties:
+            red: { type: integer }
+            blue: { type: integer }
+        missing:
+          type: object
+          description: Cuánto falta del otro color para que entre el frente de la cola
+          properties:
+            red:
+              oneOf:
+                - type: object
+                  properties:
+                    min: { type: integer, nullable: true }
+                    max: { type: integer, nullable: true }
+                - type: "null"
+            blue:
+              oneOf:
+                - type: object
+                  properties:
+                    min: { type: integer, nullable: true }
+                    max: { type: integer, nullable: true }
+                - type: "null"
+        countdownEndsAt: { type: string, format: date-time, nullable: true }
+        maxEndsAt: { type: string, format: date-time, nullable: true }
+        girandoEndsAt: { type: string, format: date-time, nullable: true }
+        seedHash: { type: string, description: SHA-256 de la semilla, publicado antes del sorteo }
+        resultSlotId: { type: string, format: uuid, nullable: true }
