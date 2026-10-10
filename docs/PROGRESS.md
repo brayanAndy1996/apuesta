@@ -22,7 +22,7 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 | 006 | Sorteo verificable (casilla por semilla, historial) | 🟡 en PR #7 | #7 |
 | 007 | Registro del cajero: pagos, sin color, anular/devolver | 🟡 en PR #8 | #8 |
 | 008 | Liquidación: premios, winners, marcar pagada | 🟡 en PR #9 | #9 |
-| 009 | Pantalla pública en vivo | ⬜ pendiente | — |
+| 009 | Pantalla pública en vivo: bolsa, cola, lista enmascarada, socket | 🟡 en PR #10 | #10 |
 | 010 | Panel del cajero | ⬜ pendiente | — |
 | 011 | Panel del admin | ⬜ pendiente | — |
 | 012 | Pulido demo | ⬜ pendiente | — |

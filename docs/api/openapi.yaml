@@ -354,6 +354,30 @@ paths:
         "403": { description: Cajero no asignado a la sala }
         "404": { description: Apuesta no encontrada }
         "409": { description: Ya pagada o sin premio }
+  /rooms/{code}/public-bets:
+    get:
+      operationId: listPublicBets
+      summary: Lista pública de apuestas de la ronda abierta (spec 009, R27)
+      description: Datos del jugador enmascarados (nombre + inicial del apellido, teléfono *** *** NNN). Excluye ANULADA/DEVUELTA; la bandeja "sin color" aparece con side=null.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Apuestas de la ronda abierta, más reciente primero
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [seq, bets]
+                properties:
+                  seq: { type: integer, nullable: true }
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/PublicBet" }
+        "404": { description: Sala no encontrada o inactiva }
   /rooms/{code}/bets:
     get:
       operationId: listRoundBets
@@ -815,6 +839,12 @@ components:
                     min: { type: integer, nullable: true }
                     max: { type: integer, nullable: true }
                 - type: "null"
+        blocked:
+          type: object
+          description: R13 — true si el color tiene cola esperando entrar
+          properties:
+            red: { type: boolean }
+            blue: { type: boolean }
         countdownEndsAt: { type: string, format: date-time, nullable: true }
         maxEndsAt: { type: string, format: date-time, nullable: true }
         girandoEndsAt: { type: string, format: date-time, nullable: true }
@@ -873,6 +903,37 @@ components:
         payoutCentimos: { type: integer, nullable: true }
         paidOperationNumber: { type: string, nullable: true }
         paidAt: { type: string, format: date-time, nullable: true }
+    PublicBet:
+      type: object
+      required: [id, status, amountCentimos]
+      properties:
+        id: { type: string, format: uuid }
+        displayName:
+          type: string
+          nullable: true
+          description: 'R27: primer nombre + inicial del último apellido ("Rosa Q.")'
+        maskedPhone:
+          type: string
+          nullable: true
+          description: 'R27: "*** *** NNN" (últimos 3 dígitos)'
+        side:
+          oneOf:
+            - type: string
+              enum: [red, blue]
+            - type: "null"
+        status:
+          type: string
+          enum: [QUEUED, POOL]
+        amountCentimos: { type: integer }
+        createdAt: { type: string, format: date-time }
+        winRangeCentimos:
+          oneOf:
+            - type: object
+              description: 'R27: "gana entre S/ min y S/ max"'
+              properties:
+                min: { type: integer }
+                max: { type: integer }
+            - type: "null"
     Winner:
       type: object
       required: [betId, payoutCentimos, status]

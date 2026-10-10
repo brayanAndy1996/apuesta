@@ -15,6 +15,26 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 009)
+
+- Público nuevo: `GET /rooms/:code/public-bets` (sin auth) — lista enmascarada
+  R27: `displayName` ("Rosa Q.", último token como apellido), `maskedPhone`
+  ("*** *** NNN"), `winRangeCentimos {min,max}` = monto × mín/máx
+  multiplicador del color. Excluye ANULADA/DEVUELTA; "sin color" va con
+  side/winRange null.
+- `currentRoundView` añade `blocked:{red,blue}` = hay cola esperando (R13);
+  `missing` ya daba cuánto falta del otro color.
+- `lib/mask.js` puro (publicName, maskPhone, winRangeCentimos).
+- Web: `/sala/[code]` público — bolsas por color, "en espera", "Falta S/…del
+  otro color", countdown, ruleta animada en GIRANDO que aterriza en `result`,
+  lista de apuestas. `lib/socket.ts` (socket.io-client) + `join:room` +
+  `round:update` → invalida queries. Home enlaza a `/sala/GENERAL`.
+- adversarial-tester: el test AC-03 verifica sobre el JSON crudo que no se
+  exponen operationNumber, paymentVerified, cashierId, teléfono ni apellido
+  completo. Sin hallazgos.
+- Gotcha: la respuesta de POST /bets es `{bets:[...]}` (por el split R21), no
+  `{bet}`. Y en nombres peruanos el apellido está en el último token.
+
 ## Estado (al terminar spec 008 — con metodología SDD+TDD completa)
 
 - Liquidación: `domain/settlement.js` — `settle(round, slots, poolBets)`
