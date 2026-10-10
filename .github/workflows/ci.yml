@@ -28,11 +28,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: api — install, lint, test
+      - name: api — install, lint, migrate, test
         working-directory: api
         run: |
           npm ci
           npm run lint
+          npm run db:migrate
           npm test
       - name: web — install, lint, build
         working-directory: web
