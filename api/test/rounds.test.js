@@ -45,10 +45,20 @@ async function makeRoom() {
   return created.body.room;
 }
 
-async function bet(code, side, amountCentimos, token = adminToken) {
+let opSeq = 0;
+async function bet(code, side, amountCentimos, token = adminToken, extra = {}) {
   return api(`/rooms/${code}/bets`, {
     method: "POST",
-    body: { side, amountCentimos },
+    body: {
+      side,
+      amountCentimos,
+      playerName: "Jugador Test",
+      phone: "987654321",
+      method: "yape",
+      operationNumber: `op-${++opSeq}`,
+      paymentVerified: true,
+      ...extra,
+    },
     token,
   });
 }
@@ -110,7 +120,7 @@ after(async () => {
 test("AC-01: la primera apuesta crea la ronda en ESPERANDO y queda en cola", async () => {
   const res = await bet(room.code, "red", 600);
   assert.equal(res.status, 201);
-  assert.equal(res.body.bet.status, "QUEUED");
+  assert.equal(res.body.bets[0].status, "QUEUED");
   assert.equal(res.body.round.seq, 1);
   assert.equal(res.body.round.state, "ESPERANDO");
 
@@ -125,7 +135,7 @@ test("AC-01: la primera apuesta crea la ronda en ESPERANDO y queda en cola", asy
 test("AC-02: apuestas de ambos colores entran a la bolsa y arranca la cuenta", async () => {
   const other = await makeRoom();
   const blue = await bet(other.code, "blue", 600);
-  assert.equal(blue.body.bet.status, "QUEUED");
+  assert.equal(blue.body.bets[0].status, "QUEUED");
   const red = await bet(other.code, "red", 600);
   assert.equal(red.status, 201);
 
@@ -305,9 +315,9 @@ test("AC-08: una apuesta durante GIRANDO va a la ronda siguiente", async () => {
   assert.equal(res.body.round.seq, spinning.seq + 1);
 
   await processExpiredRounds(inMs(61_000));
-  const next = await Round.findByPk(res.body.bet.id && res.body.round.seq
-    ? (await Bet.findByPk(res.body.bet.id)).roundId
-    : null);
+  const next = await Round.findByPk(
+    (await Bet.findByPk(res.body.bets[0].id)).roundId,
+  );
   assert.equal(next.seq, spinning.seq + 1);
   assert.equal(next.state, "ESPERANDO");
 });
@@ -386,8 +396,8 @@ test("AC-09: permisos y validación de la apuesta provisional", async () => {
   const foreign = await bet(room.code, "red", 200, otherToken);
   assert.equal(foreign.status, 403);
 
-  const tooHigh = await bet(room.code, "red", 99_999);
-  assert.equal(tooHigh.status, 422);
+  const tooLow = await bet(room.code, "red", 99);
+  assert.equal(tooLow.status, 422);
   const badSide = await api(`/rooms/${room.code}/bets`, {
     method: "POST",
     body: { side: "green", amountCentimos: 200 },
