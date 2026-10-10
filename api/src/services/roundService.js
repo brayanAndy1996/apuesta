@@ -3,6 +3,7 @@ import { Op, QueryTypes } from "sequelize";
 import { sequelize } from "../db.js";
 import { drawSlot } from "../domain/draw.js";
 import { createPool, drain, equalize, isSecure, maxMultiplier, missingFor } from "../domain/pool.js";
+import { maskPhone, publicName, winRangeCentimos } from "../lib/mask.js";
 import { settle } from "../domain/settlement.js";
 import { newSeed, seedHash } from "../lib/seed.js";
 import { Room } from "../models/room.js";
@@ -537,12 +538,50 @@ export async function currentRoundView(room) {
       red: missingFor(state, "red"),
       blue: missingFor(state, "blue"),
     },
+    // R13: un color está bloqueado cuando tiene apuestas esperando entrar.
+    blocked: {
+      red: state.queues.red.length > 0,
+      blue: state.queues.blue.length > 0,
+    },
     countdownEndsAt: open.countdownEndsAt,
     maxEndsAt: open.maxEndsAt,
     girandoEndsAt: open.girandoEndsAt,
     seedHash: open.seedHash,
     resultSlotId: open.resultSlotId,
     result: resultOf(open, slots),
+  };
+}
+
+// Vista pública (R27): apuestas de la ronda abierta con datos enmascarados.
+// Incluye la bandeja "sin color" (side=null); excluye ANULADA/DEVUELTA.
+export async function publicBetsView(room) {
+  const round = await Round.findOne({
+    where: { roomId: room.id, state: { [Op.ne]: LIQUIDADA } },
+    order: [["seq", "DESC"]],
+  });
+  if (!round) return { seq: null, bets: [] };
+  const [bets, slots] = await Promise.all([
+    Bet.findAll({
+      where: {
+        roundId: round.id,
+        status: { [Op.in]: [BET_STATUS.QUEUED, BET_STATUS.POOL] },
+      },
+      order: [["seq", "DESC"]],
+    }),
+    room.getSlots(),
+  ]);
+  return {
+    seq: round.seq,
+    bets: bets.map((b) => ({
+      id: b.id,
+      displayName: publicName(b.playerName),
+      maskedPhone: maskPhone(b.phone),
+      side: b.side,
+      status: b.status,
+      amountCentimos: b.amountCentimos,
+      createdAt: b.createdAt,
+      winRangeCentimos: winRangeCentimos(b.amountCentimos, slots, b.side),
+    })),
   };
 }
 

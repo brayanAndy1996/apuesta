@@ -10,6 +10,7 @@ import {
   currentRoundView,
   payBet,
   placeBet,
+  publicBetsView,
   recentRoundsView,
   refundBet,
   roundAccounting,
@@ -71,6 +72,19 @@ roomsRouter.get("/:code/rounds", async (req, res, next) => {
     }
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
     res.json({ rounds: await recentRoundsView(room, limit) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// R27: lista pública de apuestas de la ronda (datos enmascarados).
+roomsRouter.get("/:code/public-bets", async (req, res, next) => {
+  try {
+    const room = await findRoomByCode(req.params.code);
+    if (!room) {
+      return res.status(404).json({ error: "sala no encontrada" });
+    }
+    res.json(await publicBetsView(room));
   } catch (err) {
     next(err);
   }
