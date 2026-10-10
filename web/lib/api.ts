@@ -50,7 +50,10 @@ export async function loginCashier(username: string, pin: string) {
 }
 
 export async function getMe(token: string) {
-  return request<{ user: User }>("/auth/me", { token });
+  return request<{ user: User; room: { code: string; name: string } | null }>(
+    "/auth/me",
+    { token },
+  );
 }
 
 export async function listCashiers(token: string) {
@@ -104,6 +107,77 @@ export async function replaceSlots(token: string, id: string, slots: RoomSlot[])
   return request<{ slots: RoomSlot[] }>(`/admin/rooms/${id}/slots`, {
     method: "PUT",
     body: { slots },
+    token,
+  });
+}
+
+export type Bet = {
+  id: string;
+  seq: number;
+  side: "red" | "blue" | null;
+  amountCentimos: number;
+  status: "QUEUED" | "POOL" | "ANULADA" | "DEVUELTA";
+  playerName: string | null;
+  phone: string | null;
+  method: "yape" | "plin" | null;
+  operationNumber: string | null;
+  paymentVerified: boolean;
+  annulReason: string | null;
+  refundOperationNumber: string | null;
+};
+
+export type RoundView = {
+  seq: number | null;
+  state: string | null;
+  open?: boolean;
+};
+
+export async function listBets(token: string, code: string) {
+  return request<RoundView & { bets: Bet[] }>(`/rooms/${code}/bets`, { token });
+}
+
+export async function registerBet(token: string, code: string, body: unknown) {
+  return request<{ bets: Bet[]; round: { seq: number; state: string } }>(
+    `/rooms/${code}/bets`,
+    { method: "POST", body, token },
+  );
+}
+
+export async function assignBetSide(token: string, code: string, betId: string, side: "red" | "blue") {
+  return request<{ bet: Bet }>(`/rooms/${code}/bets/${betId}`, {
+    method: "PATCH",
+    body: { side },
+    token,
+  });
+}
+
+export async function annulBet(token: string, code: string, betId: string, reason: string) {
+  return request<{ bet: Bet }>(`/rooms/${code}/bets/${betId}/annul`, {
+    method: "POST",
+    body: { reason },
+    token,
+  });
+}
+
+export async function refundBet(token: string, code: string, betId: string, refundOperationNumber: string) {
+  return request<{ bet: Bet }>(`/rooms/${code}/bets/${betId}/refund`, {
+    method: "POST",
+    body: { refundOperationNumber },
+    token,
+  });
+}
+
+export async function parseMessage(token: string, code: string, message: string) {
+  return request<{
+    parsed: {
+      side?: "red" | "blue";
+      amountCentimos?: number;
+      playerName?: string;
+      phone?: string;
+    };
+  }>(`/rooms/${code}/bets/parse-message`, {
+    method: "POST",
+    body: { message },
     token,
   });
 }
