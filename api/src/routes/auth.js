@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { verifyCredential } from "../lib/crypto.js";
 import { signToken } from "../lib/jwt.js";
+import { Room } from "../models/room.js";
 import { publicUser, ROLES, User } from "../models/user.js";
 
 const INVALID = { error: "credenciales inválidas" };
@@ -64,6 +65,18 @@ authRouter.post("/pin", async (req, res, next) => {
   }
 });
 
-authRouter.get("/me", requireAuth, (req, res) => {
-  res.json({ user: publicUser(req.user) });
+authRouter.get("/me", requireAuth, async (req, res, next) => {
+  try {
+    // El cajero necesita saber qué sala atiende (una por R10).
+    const room =
+      req.user.role === "cashier"
+        ? await Room.findOne({ where: { cashierId: req.user.id, active: true } })
+        : null;
+    res.json({
+      user: publicUser(req.user),
+      room: room ? { code: room.code, name: room.name } : null,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
