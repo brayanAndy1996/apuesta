@@ -44,6 +44,7 @@ export default function SalaDetallePage() {
   });
   const [slots, setSlots] = useState<RoomSlot[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
+  const [loadedRoomId, setLoadedRoomId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token || roomQuery.data?.status === 401) {
@@ -52,8 +53,8 @@ export default function SalaDetallePage() {
     }
   }, [token, roomQuery.data, router]);
 
-  useEffect(() => {
-    if (!room) return;
+  if (room && room.id !== loadedRoomId) {
+    setLoadedRoomId(room.id);
     setForm({
       name: room.name,
       whatsappNumber: room.whatsappNumber ?? "",
@@ -62,7 +63,7 @@ export default function SalaDetallePage() {
       cashierId: room.cashier?.id ?? "",
     });
     setSlots(room.slots ?? []);
-  }, [room]);
+  }
 
   const save = useMutation({
     mutationFn: () =>

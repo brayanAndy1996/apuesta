@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -38,9 +39,9 @@ export default function AdminPage() {
       )}
       <p className="mt-6 text-sm text-neutral-500">
         Gestiona las{" "}
-        <a href="/admin/salas" className="underline">
+        <Link href="/admin/salas" className="underline">
           salas
-        </a>
+        </Link>
         .
       </p>
     </main>
