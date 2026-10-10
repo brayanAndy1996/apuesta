@@ -6,6 +6,23 @@
 const SIDE_RE = /\b(rojo|azul|red|blue)\b/i;
 const AMOUNT_RE = /s\/\.?\s*(\d+(?:[.,]\d{1,2})?)/i;
 const PHONE_RE = /\b(9\d{8})\b/;
+const SIDE_LABEL = { red: "ROJO", blue: "AZUL" };
+
+// R18: el mensaje que la página escribe por el jugador y que el cajero pega
+// para autocompletar (R19). Generar y parsear comparten este formato.
+// Los campos no pueden llevar el separador "·" (rompería el formato R18).
+const safe = (v) => String(v ?? "").replace(/[·|]/g, "-").trim();
+
+export function buildBetMessage({ roomName, side, amountCentimos, playerName, phone }) {
+  const parts = ["APUESTA", `Sala ${safe(roomName)}`];
+  if (side) parts.push(SIDE_LABEL[side]);
+  parts.push(
+    `S/ ${(amountCentimos / 100).toFixed(2)}`,
+    safe(playerName),
+    String(phone ?? "").replace(/\D/g, ""),
+  );
+  return parts.join(" · ");
+}
 
 export function parseBetMessage(text) {
   const out = {};

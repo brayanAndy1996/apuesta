@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { parseBetMessage } from "../lib/betMessage.js";
+import { buildBetMessage, parseBetMessage } from "../lib/betMessage.js";
 import { requireAuth } from "../middleware/auth.js";
 import { publicRoom, publicSlot, Room, RoomSlot } from "../models/room.js";
 import {
@@ -85,6 +85,37 @@ roomsRouter.get("/:code/public-bets", async (req, res, next) => {
       return res.status(404).json({ error: "sala no encontrada" });
     }
     res.json(await publicBetsView(room));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// R18: el jugador arma su apuesta; la API le devuelve el mensaje ya escrito
+// y el enlace wa.me con el WhatsApp de la sala.
+roomsRouter.get("/:code/bet-message", async (req, res, next) => {
+  try {
+    const room = await findRoomByCode(req.params.code);
+    if (!room) {
+      return res.status(404).json({ error: "sala no encontrada" });
+    }
+    const parsed = z
+      .object({
+        side: z.enum(["red", "blue"]).nullish(),
+        amountCentimos: z.coerce.number().int().positive(),
+        playerName: z.string().trim().min(1).max(160),
+        phone: z.string().trim().min(1).max(32),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "parámetros inválidos" });
+    }
+    // El mensaje R18 identifica la sala por su código ("Sala GENERAL").
+    const message = buildBetMessage({ roomName: room.code, ...parsed.data });
+    const whatsapp = String(room.whatsapp ?? "").replace(/\D/g, "");
+    res.json({
+      message,
+      whatsappUrl: `https://wa.me/${whatsapp}?text=${encodeURIComponent(message)}`,
+    });
   } catch (err) {
     next(err);
   }
