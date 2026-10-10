@@ -132,6 +132,51 @@ export type RoundView = {
   open?: boolean;
 };
 
+// Vista pública en vivo (spec 009, R13/R27).
+export type MissingRange = { min: number; max: number };
+
+export type PublicRound = {
+  seq: number;
+  state: string;
+  pools: { red: number; blue: number };
+  queued: { red: number; blue: number };
+  missing: { red: MissingRange | null; blue: MissingRange | null };
+  blocked: { red: boolean; blue: boolean };
+  countdownEndsAt: string | null;
+  maxEndsAt: string | null;
+  girandoEndsAt: string | null;
+  seedHash: string;
+  resultSlotId: string | null;
+  result: { id: string; side: "red" | "blue"; multiplier: number; weight: number } | null;
+};
+
+export type PublicBet = {
+  id: string;
+  displayName: string | null;
+  maskedPhone: string | null;
+  side: "red" | "blue" | null;
+  status: string;
+  amountCentimos: number;
+  createdAt: string;
+  winRangeCentimos: MissingRange | null;
+};
+
+export async function getPublicRoom(code: string) {
+  return request<{ room: { code: string; name: string }; slots: RoomSlot[] }>(
+    `/rooms/${code}`,
+  );
+}
+
+export async function getPublicRound(code: string) {
+  return request<{ round: PublicRound }>(`/rooms/${code}/round`);
+}
+
+export async function getPublicBets(code: string) {
+  return request<{ seq: number | null; bets: PublicBet[] }>(
+    `/rooms/${code}/public-bets`,
+  );
+}
+
 export async function listBets(token: string, code: string) {
   return request<RoundView & { bets: Bet[] }>(`/rooms/${code}/bets`, { token });
 }
