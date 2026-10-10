@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import { createServer } from "node:http";
 
 import { createApp } from "../src/app.js";
-import { ROLES, User } from "../src/models/user.js";
+import { User } from "../src/models/user.js";
 import { Bet, Round } from "../src/models/round.js";
 import { Room, RoomSlot } from "../src/models/room.js";
 import { ensureAdmin, ensureGeneralRoom } from "../src/bootstrap.js";
