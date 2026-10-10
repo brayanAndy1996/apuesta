@@ -15,6 +15,16 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 006)
+
+- Sorteo: `api/src/domain/draw.js` — `pos = BigInt("0x"+seed) % 100` sobre el
+  orden canónico de casillas (red por multiplier asc, luego blue por asc).
+  `closeAndSpin` guarda `result_slot_id` en la misma transacción del cierre
+  (R9) y nunca resortea (idempotente).
+- `GET /rooms/:code/round` devuelve `result` (casilla) desde GIRANDO; el
+  historial público `GET /rooms/:code/rounds?limit=N` expone `seed` solo en
+  rondas `LIQUIDADA` (verificable: `sha256(seed) === seedHash`).
+
 ## Estado (al terminar spec 005)
 
 - Tablas: `users`, `rooms`, `room_slots`, `rounds`, `bets`.

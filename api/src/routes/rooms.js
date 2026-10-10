@@ -4,7 +4,11 @@ import { z } from "zod";
 import { validateBet } from "../domain/pool.js";
 import { requireAuth } from "../middleware/auth.js";
 import { publicRoom, publicSlot, Room, RoomSlot } from "../models/room.js";
-import { currentRoundView, placeBet } from "../services/roundService.js";
+import {
+  currentRoundView,
+  placeBet,
+  recentRoundsView,
+} from "../services/roundService.js";
 
 export const roomsRouter = Router();
 
@@ -47,6 +51,19 @@ roomsRouter.get("/:code/round", async (req, res, next) => {
       return res.status(404).json({ error: "sala no encontrada" });
     }
     res.json({ round: await currentRoundView(room) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+roomsRouter.get("/:code/rounds", async (req, res, next) => {
+  try {
+    const room = await findRoomByCode(req.params.code);
+    if (!room) {
+      return res.status(404).json({ error: "sala no encontrada" });
+    }
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+    res.json({ rounds: await recentRoundsView(room, limit) });
   } catch (err) {
     next(err);
   }

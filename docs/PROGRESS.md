@@ -4,9 +4,9 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 
 ## Estado actual
 
-- **Spec en curso**: 005 — ciclo de la ronda y temporizadores.
+- **Spec en curso**: 006 — sorteo verificable.
 - **PR abierto acumulado**: #3 (`devin/fix-review-002` → `main`) contiene
-  specs 002-fixes + 003 + 004 + 005. Al mergearlo, `main` recibe todo junto.
+  specs 002-fixes + 003 + 004 + 005 + 006. Al mergearlo, `main` recibe todo junto.
 
 ## Tabla de funcionalidades
 
@@ -18,7 +18,7 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 | 003 | Salas: modelo, endpoints admin/públicos, UI | 🟡 en PR #3 (mergeada a la rama) | #4 |
 | 004 | Dominio puro de la bolsa + fast-check | 🟡 en PR #3 (mergeada a la rama) | #5 |
 | 005 | Ciclo de ronda: estados, timers, sockets, bets | 🟡 en PR #6 | #6 |
-| 006 | Sorteo y liquidación | ⬜ pendiente | — |
+| 006 | Sorteo verificable (casilla por semilla, historial) | 🟡 en PR #7 | #7 |
 | 007 | Registro de apuestas del cajero | ⬜ pendiente | — |
 | 008 | Pagos Yape/Plin + confirmación | ⬜ pendiente | — |
 | 009 | Pantalla pública en vivo | ⬜ pendiente | — |
