@@ -15,6 +15,23 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 010)
+
+- `buildBetMessage` en `api/src/lib/betMessage.js` junto a `parseBetMessage`
+  (el formato R18 tiene una sola fuente): `APUESTA · Sala CODE · ROJO ·
+  S/ 10.00 · Nombre · 9xx`. `safe()` quita "·" de los campos. Sin color →
+  omite el segmento.
+- `GET /rooms/:code/bet-message` (público): valida con Zod y devuelve
+  `{message, whatsappUrl}` (wa.me/<whatsapp de la sala>?text=codificado).
+  Usa `room.code` (no el nombre) en "Sala CODE".
+- Web `/sala/[code]`: `BetForm` — nombre, teléfono, color, monto S/ validado
+  contra topes, tabs Yape/Plin con QR (`QrImage`: URL → <img>, payload →
+  `QRCode.create` síncrono → SVG por React), "Enviar por WhatsApp" abre
+  whatsappUrl. Botón flotante "Consultas WhatsApp" (R29).
+- adversarial-tester: corregido bajo (playerName con "·" rompía el formato).
+  Nota: el cajero siempre revisa el autocompletado (R19), por eso la
+  sanitización es suficiente.
+
 ## Estado (al terminar spec 009)
 
 - Público nuevo: `GET /rooms/:code/public-bets` (sin auth) — lista enmascarada

@@ -378,6 +378,48 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/PublicBet" }
         "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/bet-message:
+    get:
+      operationId: getBetMessage
+      summary: Mensaje R18 ya escrito + enlace wa.me de la sala (spec 010)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: side
+          in: query
+          schema:
+            oneOf:
+              - type: string
+                enum: [red, blue]
+              - type: "null"
+          description: Omitido = apuesta "sin color" (R22)
+        - name: amountCentimos
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: playerName
+          in: query
+          required: true
+          schema: { type: string }
+        - name: phone
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: '"APUESTA · Sala CODE · ROJO · S/ 10.00 · Nombre · 9xx"'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, whatsappUrl]
+                properties:
+                  message: { type: string }
+                  whatsappUrl: { type: string }
+        "400": { description: Parámetros inválidos }
+        "404": { description: Sala no encontrada o inactiva }
   /rooms/{code}/bets:
     get:
       operationId: listRoundBets
