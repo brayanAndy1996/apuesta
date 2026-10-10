@@ -4,10 +4,11 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 
 ## Estado actual
 
-- **Spec en curso**: 007 — registro de apuestas del cajero.
+- **Spec en curso**: 011 — reglas y confianza.
 - **PR abierto acumulado**: #3 (`devin/fix-review-002` → `main`) contiene
-  specs 002-fixes + 003 + 004 + 005 + 006 + 007. Al mergearlo, `main` recibe
-  todo junto.
+  specs 002-fixes + 003 + 004. Encima se apilan #6 (005), #8 (006+007),
+  #9 (008), #10 (009), #11 (010) y #12 (011). Al mergear #3, `main` recibe
+  todo junto y GitHub retargeta el resto en cascada.
 
 ## Tabla de funcionalidades
 
@@ -24,9 +25,9 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 | 008 | Liquidación: premios, winners, marcar pagada | 🟡 en PR #9 | #9 |
 | 009 | Pantalla pública en vivo: bolsa, cola, lista enmascarada, socket | 🟡 en PR #10 | #10 |
 | 010 | Armar la apuesta: QR + WhatsApp ya escrito | 🟡 en PR #11 | #11 |
-| 011 | Panel del admin | ⬜ pendiente | — |
-| 012 | Pulido demo | ⬜ pendiente | — |
-| 013 | Hardening y despliegue | ⬜ pendiente | — |
+| 011 | Reglas y confianza: stats, verificador, FAQ | 🟡 en PR #12 | #12 |
+| 012 | Reportes por sala y día, y auditoría | ⬜ pendiente | — |
+| 013 | Modo demo y simulador | ⬜ pendiente | — |
 
 ## Deuda técnica conocida
 

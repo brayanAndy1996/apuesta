@@ -420,6 +420,28 @@ paths:
                   whatsappUrl: { type: string }
         "400": { description: Parámetros inválidos }
         "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/stats:
+    get:
+      operationId: getRoomStats
+      summary: Estadísticas reales vs esperadas de resultados (spec 011, R28)
+      description: |
+        Distribución real de las casillas ganadoras sobre las rondas LIQUIDADA
+        frente a la esperada por los pesos actuales. `rounds` cuenta todas las
+        rondas liquidadas; si el admin reemplazó las casillas, los resultados
+        históricos cuya casilla ya no existe solo cuentan en `rounds` (por eso
+        `perColor` puede sumar menos que `rounds` tras un cambio de config).
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Estadísticas por casilla y por color
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoomStats" }
+        "404": { description: Sala no encontrada o inactiva }
   /rooms/{code}/bets:
     get:
       operationId: listRoundBets
@@ -976,6 +998,36 @@ components:
                 min: { type: integer }
                 max: { type: integer }
             - type: "null"
+    RoomStats:
+      type: object
+      required: [rounds, perColor, slots]
+      properties:
+        rounds:
+          type: integer
+          description: Rondas LIQUIDADA totales de la sala
+        perColor:
+          type: object
+          properties:
+            red: { type: integer }
+            blue: { type: integer }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/SlotStats" }
+    SlotStats:
+      type: object
+      required: [id, side, multiplier, weight, realCount, expectedCount, expectedPct, realPct]
+      properties:
+        id: { type: string, format: uuid }
+        side: { type: string, enum: [red, blue] }
+        multiplier: { type: integer, description: Centésimas (170 = ×1.70) }
+        weight: { type: integer, description: Peso (probabilidad) en % }
+        realCount: { type: integer }
+        expectedCount: { type: number }
+        expectedPct: { type: number, description: Igual a weight }
+        realPct:
+          type: number
+          nullable: true
+          description: null cuando no hay rondas liquidadas
     Winner:
       type: object
       required: [betId, payoutCentimos, status]

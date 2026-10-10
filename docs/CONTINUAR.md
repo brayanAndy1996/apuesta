@@ -15,6 +15,35 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 011)
+
+- `GET /rooms/:code/stats` (público): `statsView` en roundService — `rounds`
+  (LIQUIDADA totales), `perColor` y por casilla `realCount/realPct` vs
+  `expectedCount/expectedPct` (R28).
+- `web/lib/verify.ts`: reproduce el sorteo en el navegador — `sha256Hex` con
+  Web Crypto + `drawSlot`/`drawPos` (mismo orden canónico que
+  `api/src/domain/draw.js`).
+- `web/app/sala/[code]/reglas/page.tsx` (pública): "¿Cómo funciona?" en 4
+  pasos, calculadora (monto+color → rango de ganancia), tabla de casillas con
+  %, historial + stats real vs esperada, verificador de rondas liquidadas y
+  FAQ. Enlazada desde el header de `/sala/[code]` ("Reglas y verificador").
+- Metodología SDD+TDD completa: spec → tests ACs en rojo → implementación →
+  adversarial → PR.
+
+### Pasada adversarial spec 011
+
+- **Casillas reemplazadas dejan `result_slot_id` colgado** (sin FK): si el
+  admin reemplaza las casillas, las rondas históricas cuyo slot ya no existe
+  siguen contando en `rounds` pero no en `perColor` (perColor puede sumar
+  menos que rounds). Decisión: degradado visible y honesto — no se inventa
+  un lado; documentado en openapi.yaml. Bajo, sin cambio de schema.
+- `realPct` con denominador = todas las LIQUIDADA (no solo resolubles): mismo
+  caso borde anterior; consistente con la doc.
+- Verificador del navegador: `crypto.subtle` solo existe en contexto seguro
+  (https/localhost) — aceptable para el demo. `BigInt("0x"+seed)` puede lanzar
+  con seed malformada, pero la API solo revela seeds válidas de LIQUIDADA.
+- Sin hallazgos críticos/altos abiertos.
+
 ## Estado (al terminar spec 010)
 
 - `buildBetMessage` en `api/src/lib/betMessage.js` junto a `parseBetMessage`
