@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "eslint": "^9.39.2",
+    "fast-check": "^4.10.2",
     "sequelize-cli": "^6.6.3"
   }
 }
