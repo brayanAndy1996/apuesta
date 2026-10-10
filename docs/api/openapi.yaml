@@ -264,6 +264,96 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/RoundSummary" }
         "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/winners:
+    get:
+      operationId: listWinners
+      summary: '"Ganadores por pagar" de una ronda LIQUIDADA (spec 008, R25)'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: seq
+          in: query
+          schema: { type: integer }
+          description: Ronda específica; por defecto la última LIQUIDADA
+      responses:
+        "200":
+          description: Ganadores ordenados por estado (PENDIENTE primero)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [seq, winners]
+                properties:
+                  seq: { type: integer, nullable: true }
+                  winners:
+                    type: array
+                    items: { $ref: "#/components/schemas/Winner" }
+        "400": { description: seq inválido }
+        "401": { description: Token inválido }
+        "403": { description: Cajero no asignado a la sala }
+        "404": { description: Sala no encontrada }
+  /rooms/{code}/rounds/{seq}/accounting:
+    get:
+      operationId: roundAccounting
+      summary: Desglose contable de una ronda LIQUIDADA (spec 008)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: seq
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: "collected = paid + kept por color (R26)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoundAccounting" }
+        "400": { description: seq inválido }
+        "403": { description: Cajero no asignado a la sala }
+        "404": { description: Ronda no encontrada }
+  /rooms/{code}/bets/{betId}/pay:
+    post:
+      operationId: payBet
+      summary: Marca el premio como pagado con el nº de operación (spec 008)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: betId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operationNumber]
+              properties:
+                operationNumber: { type: string, minLength: 4, maxLength: 30 }
+      responses:
+        "200":
+          description: Apuesta pagada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+        "400": { description: Nº de operación inválido }
+        "403": { description: Cajero no asignado a la sala }
+        "404": { description: Apuesta no encontrada }
+        "409": { description: Ya pagada o sin premio }
   /rooms/{code}/bets:
     get:
       operationId: listRoundBets
@@ -780,3 +870,43 @@ components:
         paymentVerified: { type: boolean }
         annulReason: { type: string, nullable: true }
         refundOperationNumber: { type: string, nullable: true }
+        payoutCentimos: { type: integer, nullable: true }
+        paidOperationNumber: { type: string, nullable: true }
+        paidAt: { type: string, format: date-time, nullable: true }
+    Winner:
+      type: object
+      required: [betId, payoutCentimos, status]
+      properties:
+        betId: { type: string, format: uuid }
+        playerName: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        payoutCentimos: { type: integer }
+        method:
+          oneOf:
+            - type: string
+              enum: [yape, plin]
+            - type: "null"
+        status:
+          type: string
+          enum: [PENDIENTE, PAGADA]
+        paidOperationNumber: { type: string, nullable: true }
+    RoundAccounting:
+      type: object
+      required: [seq, collectedCentimos, paidCentimos, keptCentimos]
+      properties:
+        seq: { type: integer }
+        collectedCentimos: { type: integer, description: Total apostado en la bolsa }
+        paidCentimos: { type: integer, description: Premios pagados a ganadores }
+        keptCentimos: { type: integer, description: Lo que se queda la casa }
+        carriedCentimos: { type: integer, description: QUEUED arrastrada a la ronda siguiente }
+        byColor:
+          type: object
+          properties:
+            red: { $ref: "#/components/schemas/ColorAccounting" }
+            blue: { $ref: "#/components/schemas/ColorAccounting" }
+    ColorAccounting:
+      type: object
+      properties:
+        collectedCentimos: { type: integer }
+        paidCentimos: { type: integer }
+        keptCentimos: { type: integer }

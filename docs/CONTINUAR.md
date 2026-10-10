@@ -15,6 +15,29 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 008 — con metodología SDD+TDD completa)
+
+- Liquidación: `domain/settlement.js` — `settle(round, slots, poolBets)`
+  asigna premios por apuesta en bolsa: ganadores de su color cobran
+  `floor(amount × multiplier/100)` (R2, redondeo a favor de la casa),
+  perdedores y QUEUED (arrastrada) cobran 0. Invariante R26 probada con
+  fast-check: `collected = paid + kept` y la casa nunca queda negativa.
+- Ciclo: en `GIRANDO→LIQUIDADA` se guarda `payoutCentimos` por apuesta y
+  `paidOperationNumber=null`. Rescue: si `resultSlotId` faltara se deriva de
+  la semilla (idempotente).
+- Endpoints cajero/admin: `GET /rooms/:code/winners?seq=` (última LIQUIDADA,
+  lista PENDIENTE/PAGADA), `POST /rooms/:code/bets/:id/pay` (nº operación,
+  409 si ya pagada, FOR UPDATE), `GET /rooms/:code/rounds/:seq/accounting`
+  (collected/paid/kept por color).
+- UI `/cajero`: sección "Ganadores por pagar — ronda N" con botón
+  "Marcar pagada" (prompt del nº de operación).
+- adversarial-tester (pasada documentada aquí): sin hallazgos críticos/altos.
+  Corregidos 2 bajos: `seq` NaN → 400 en `/winners` y `/rounds/:seq/accounting`.
+  Verificado: doble pago concurrente (lock), pago pre-liquidación (409),
+  QUEUED/ANULADA no cobran, premio solo del color ganador, roomId ajeno → 404.
+- Gotcha: `FOR UPDATE` con include (outer join) falla en Postgres → bloquear
+  la fila sin include y traer la asociación aparte.
+
 ## Estado (al terminar spec 007)
 
 - `bets` extendida: player_name, phone, method (yape|plin), operation_number

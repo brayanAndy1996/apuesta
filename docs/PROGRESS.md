@@ -21,7 +21,7 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 | 005 | Ciclo de ronda: estados, timers, sockets, bets | 🟡 en PR #6 | #6 |
 | 006 | Sorteo verificable (casilla por semilla, historial) | 🟡 en PR #7 | #7 |
 | 007 | Registro del cajero: pagos, sin color, anular/devolver | 🟡 en PR #8 | #8 |
-| 008 | Pagos Yape/Plin + confirmación | ⬜ pendiente | — |
+| 008 | Liquidación: premios, winners, marcar pagada | 🟡 en PR #9 | #9 |
 | 009 | Pantalla pública en vivo | ⬜ pendiente | — |
 | 010 | Panel del cajero | ⬜ pendiente | — |
 | 011 | Panel del admin | ⬜ pendiente | — |
