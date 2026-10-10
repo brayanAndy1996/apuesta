@@ -175,6 +175,183 @@ paths:
         "401": { description: Sin token }
         "403": { description: No es admin }
         "404": { description: Cajero no encontrado }
+  /rooms:
+    get:
+      operationId: listPublicRooms
+      summary: Salas activas (público)
+      responses:
+        "200":
+          description: Lista de salas activas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rooms]
+                properties:
+                  rooms:
+                    type: array
+                    items: { $ref: "#/components/schemas/Room" }
+  /rooms/{code}:
+    get:
+      operationId: getPublicRoom
+      summary: Detalle público de una sala por código
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Sala con sus casillas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "404": { description: Sala no encontrada o inactiva }
+  /admin/rooms:
+    get:
+      operationId: listRooms
+      summary: Todas las salas (solo admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Lista de salas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rooms]
+                properties:
+                  rooms:
+                    type: array
+                    items: { $ref: "#/components/schemas/Room" }
+        "401": { description: Sin token }
+        "403": { description: No es admin }
+    post:
+      operationId: createRoom
+      summary: Crear sala (solo admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                whatsappNumber: { type: string, nullable: true }
+                minBetCentimos: { type: integer, minimum: 0 }
+                maxBetCentimos: { type: integer, minimum: 0 }
+                cashierId: { type: string, format: uuid, nullable: true }
+                slots:
+                  type: array
+                  items: { $ref: "#/components/schemas/RoomSlotInput" }
+      responses:
+        "201":
+          description: Sala creada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "400": { description: Datos inválidos }
+        "409": { description: El cajero ya atiende otra sala }
+  /admin/rooms/{id}:
+    get:
+      operationId: getRoom
+      summary: Detalle de sala con casillas (solo admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Sala
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "404": { description: Sala no encontrada }
+    patch:
+      operationId: updateRoom
+      summary: Editar sala (solo admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                whatsappNumber: { type: string, nullable: true }
+                minBetCentimos: { type: integer, minimum: 0 }
+                maxBetCentimos: { type: integer, minimum: 0 }
+                cashierId: { type: string, format: uuid, nullable: true }
+                active: { type: boolean }
+      responses:
+        "200":
+          description: Sala actualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "400": { description: Datos inválidos }
+        "409": { description: El cajero ya atiende otra sala }
+  /admin/rooms/{id}/slots:
+    put:
+      operationId: replaceSlots
+      summary: Reemplazar las casillas de la sala en bloque (solo admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slots]
+              properties:
+                slots:
+                  type: array
+                  minItems: 2
+                  items: { $ref: "#/components/schemas/RoomSlotInput" }
+      responses:
+        "200":
+          description: Casillas reemplazadas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [slots]
+                properties:
+                  slots:
+                    type: array
+                    items: { $ref: "#/components/schemas/RoomSlot" }
+        "400": { description: Casillas inválidas }
 components:
   securitySchemes:
     bearerAuth:
@@ -210,3 +387,44 @@ components:
         token: { type: string }
         user:
           $ref: "#/components/schemas/User"
+    RoomSlotInput:
+      type: object
+      required: [side, multiplier, weight]
+      properties:
+        side:
+          type: string
+          enum: [red, blue]
+        multiplier:
+          type: integer
+          minimum: 101
+          maximum: 199
+          description: Multiplicador ×100 (150 = 1.5)
+        weight:
+          type: integer
+          minimum: 1
+          maximum: 99
+    RoomSlot:
+      allOf:
+        - $ref: "#/components/schemas/RoomSlotInput"
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+    Room:
+      type: object
+      required: [id, code, name, minBetCentimos, maxBetCentimos, active]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        whatsappNumber: { type: string, nullable: true }
+        minBetCentimos: { type: integer }
+        maxBetCentimos: { type: integer }
+        active: { type: boolean }
+        cashier:
+          oneOf:
+            - $ref: "#/components/schemas/User"
+            - type: "null"
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/RoomSlot" }

@@ -1,4 +1,5 @@
 import { hashCredential } from "./lib/crypto.js";
+import { DEFAULT_SLOTS, GENERAL_ROOM_CODE, Room, RoomSlot } from "./models/room.js";
 import { ROLES, User } from "./models/user.js";
 
 // Crea el administrador inicial si no existe ninguno.
@@ -23,4 +24,19 @@ export async function ensureAdmin() {
     name: "Administrador",
     credentialHash: await hashCredential(password),
   });
+}
+
+// Crea la sala general (R4) con las casillas por defecto si no existe.
+export async function ensureGeneralRoom() {
+  const existing = await Room.findOne({ where: { code: GENERAL_ROOM_CODE } });
+  if (existing) return existing;
+
+  const room = await Room.create({
+    code: GENERAL_ROOM_CODE,
+    name: "Sala general",
+  });
+  await RoomSlot.bulkCreate(
+    DEFAULT_SLOTS.map((slot) => ({ ...slot, roomId: room.id })),
+  );
+  return room;
 }

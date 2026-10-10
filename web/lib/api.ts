@@ -52,3 +52,58 @@ export async function loginCashier(username: string, pin: string) {
 export async function getMe(token: string) {
   return request<{ user: User }>("/auth/me", { token });
 }
+
+export async function listCashiers(token: string) {
+  return request<{ cashiers: User[] }>("/admin/cashiers", { token });
+}
+
+export type RoomSlot = {
+  id?: string;
+  side: "red" | "blue";
+  multiplier: number;
+  weight: number;
+};
+
+export type Room = {
+  id: string;
+  code: string;
+  name: string;
+  whatsappNumber: string | null;
+  minBetCentimos: number;
+  maxBetCentimos: number;
+  active: boolean;
+  cashier: User | null;
+  slots?: RoomSlot[];
+};
+
+export async function listRooms(token: string) {
+  return request<{ rooms: Room[] }>("/admin/rooms", { token });
+}
+
+export async function getRoom(token: string, id: string) {
+  return request<{ room: Room }>(`/admin/rooms/${id}`, { token });
+}
+
+export async function createRoom(token: string, body: unknown) {
+  return request<{ room: Room }>("/admin/rooms", {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
+export async function updateRoom(token: string, id: string, body: unknown) {
+  return request<{ room: Room }>(`/admin/rooms/${id}`, {
+    method: "PATCH",
+    body,
+    token,
+  });
+}
+
+export async function replaceSlots(token: string, id: string, slots: RoomSlot[]) {
+  return request<{ slots: RoomSlot[] }>(`/admin/rooms/${id}/slots`, {
+    method: "PUT",
+    body: { slots },
+    token,
+  });
+}
