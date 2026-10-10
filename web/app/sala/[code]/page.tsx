@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 
 import {
   getPublicBets,
@@ -202,7 +203,15 @@ export default function SalaPublica() {
           </h1>
           <p className="text-xs text-neutral-500">Ruleta Rápida · demo con dinero ficticio</p>
         </div>
-        {r && <Estado state={r.state} />}
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/sala/${codeUp}/reglas`}
+            className="rounded border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
+          >
+            Reglas y verificador
+          </Link>
+          {r && <Estado state={r.state} />}
+        </div>
       </header>
 
       {r?.state === "CUENTA_REGRESIVA" && r.countdownEndsAt && (

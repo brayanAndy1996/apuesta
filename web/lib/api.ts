@@ -203,6 +203,43 @@ export async function getPublicBets(code: string) {
   );
 }
 
+// Historial y estadísticas públicas (spec 011, R28).
+export type HistoryRound = {
+  seq: number;
+  state: string;
+  seedHash: string;
+  seed: string | null;
+  result: { id: string; side: "red" | "blue"; multiplier: number; weight: number } | null;
+  createdAt: string;
+};
+
+export type SlotStats = {
+  id: string;
+  side: "red" | "blue";
+  multiplier: number;
+  weight: number;
+  realCount: number;
+  expectedCount: number;
+  expectedPct: number;
+  realPct: number | null;
+};
+
+export type RoomStats = {
+  rounds: number;
+  perColor: { red: number; blue: number };
+  slots: SlotStats[];
+};
+
+export async function listRoundHistory(code: string, limit = 50) {
+  return request<{ rounds: HistoryRound[] }>(
+    `/rooms/${code}/rounds?limit=${limit}`,
+  );
+}
+
+export async function getStats(code: string) {
+  return request<RoomStats>(`/rooms/${code}/stats`);
+}
+
 export async function listBets(token: string, code: string) {
   return request<RoundView & { bets: Bet[] }>(`/rooms/${code}/bets`, { token });
 }
