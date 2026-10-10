@@ -312,6 +312,58 @@ test("AC-08: una apuesta durante GIRANDO va a la ronda siguiente", async () => {
   assert.equal(next.state, "ESPERANDO");
 });
 
+test("AC-10: el sorteo queda guardado antes del giro y no se repite", async () => {
+  const code = (await makeRoom()).code;
+  await bet(code, "red", 600);
+  await bet(code, "blue", 600);
+  const round = await Round.findOne({
+    include: [{ model: Room, as: "room", where: { code } }],
+  });
+  const endsAt = (await api(`/rooms/${code}/round`)).body.round.countdownEndsAt;
+  await processExpiredRounds(new Date(Date.parse(endsAt) + 10));
+
+  await round.reload();
+  assert.equal(round.state, "GIRANDO");
+  assert.ok(round.resultSlotId); // resultado ya guardado (R9)
+
+  const view = (await api(`/rooms/${code}/round`)).body.round;
+  assert.ok(view.result);
+  assert.ok(["red", "blue"].includes(view.result.side));
+
+  // Idempotente: procesar de nuevo no cambia el resultado.
+  const resultId = round.resultSlotId;
+  await processExpiredRounds(new Date(round.girandoEndsAt.getTime() + 10));
+  await round.reload();
+  assert.equal(round.state, "LIQUIDADA");
+  assert.equal(round.resultSlotId, resultId);
+});
+
+test("AC-11: el historial revela la semilla solo tras liquidar", async () => {
+  const code = (await makeRoom()).code;
+  await bet(code, "red", 600);
+  await bet(code, "blue", 600);
+
+  const openHash = (await api(`/rooms/${code}/round`)).body.round.seedHash;
+  let history = (await api(`/rooms/${code}/rounds`)).body.rounds;
+  const open = history.find((r) => r.state !== "LIQUIDADA");
+  assert.equal(open.seed, null); // hash publicado, semilla oculta (R8)
+  assert.equal(open.seedHash, openHash);
+
+  const endsAt = (await api(`/rooms/${code}/round`)).body.round.countdownEndsAt;
+  await processExpiredRounds(new Date(Date.parse(endsAt) + 10));
+  const spinning = await Round.findOne({
+    include: [{ model: Room, as: "room", where: { code } }],
+    order: [["seq", "DESC"]],
+  });
+  await processExpiredRounds(new Date(spinning.girandoEndsAt.getTime() + 10));
+
+  history = (await api(`/rooms/${code}/rounds`)).body.rounds;
+  const liquidated = history.find((r) => r.state === "LIQUIDADA");
+  assert.ok(liquidated.seed);
+  assert.equal(seedHash(liquidated.seed), liquidated.seedHash);
+  assert.ok(liquidated.result);
+});
+
 test("AC-09: permisos y validación de la apuesta provisional", async () => {
   const anon = await api(`/rooms/${room.code}/bets`, {
     method: "POST",
