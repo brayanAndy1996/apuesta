@@ -15,6 +15,21 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Fix cola bloqueada (post-spec 011, encontrado en E2E)
+
+- **Bug**: una cola que nunca podía entrar a la bolsa (p. ej. rojo 2500 + azul
+  1500 con bolsas en 0) bloqueaba la ronda para siempre: `maxEndsAt` solo se
+  armaba cuando se admitía la primera apuesta, así que la igualación R16 de
+  5 min nunca arrancaba. Además `equalize` solo podía cubrir el déficit del
+  color ligero; con bolsas iguales (0/0) no movía nada y, si igualaba por
+  debajo de `minTotal`, giraba una bolsa insegura.
+- **Fix**: `refreshTimers` arma `maxEndsAt` con la primera apuesta CON COLOR
+  de la ronda (las "sin color" no arman el reloj). `equalize` ahora iguala
+  ambas bolsas al nivel T = demanda del color más flojo (saca de ambas colas,
+  parte frentes FIFO); `spun` solo si `isSecure(T,T)`.
+- Tests: 4 casos de dominio nuevos en pool.test.js + 1 test E2E en
+  rounds.test.js ("FIX cola bloqueada"). 84/84.
+
 ## Estado (al terminar spec 011)
 
 - `GET /rooms/:code/stats` (público): `statsView` en roundService — `rounds`
