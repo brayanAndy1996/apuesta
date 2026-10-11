@@ -315,3 +315,47 @@ export async function parseMessage(token: string, code: string, message: string)
     token,
   });
 }
+
+// Reportes y auditoría del admin (spec 012, R23/R30).
+export type DailyReport = {
+  room: { code: string; name: string };
+  date: string;
+  rounds: number;
+  bets: number;
+  collectedCentimos: number;
+  pooledCentimos: number;
+  carriedCentimos: number;
+  annulledCentimos: number;
+  annulledCount: number;
+  refundedCentimos: number;
+  refundedCount: number;
+  payoutsCentimos: number;
+  payoutsPaidCentimos: number;
+  winners: { total: number; paid: number; pending: number };
+};
+
+export type AuditEvent = {
+  type: "ANULADA" | "DEVUELTA" | "PAGADA";
+  at: string;
+  roundSeq: number | null;
+  betSeq: number;
+  playerName: string | null;
+  amountCentimos: number;
+  payoutCentimos?: number;
+  detail: string | null;
+  actor: { id: string; name: string | null } | null;
+};
+
+export async function getDailyReport(token: string, code: string, date: string) {
+  return request<DailyReport>(
+    `/admin/reports/daily?code=${code}&date=${date}`,
+    { token },
+  );
+}
+
+export async function getAudit(token: string, code: string, date: string) {
+  return request<{ events: AuditEvent[] }>(
+    `/admin/audit?code=${code}&date=${date}`,
+    { token },
+  );
+}

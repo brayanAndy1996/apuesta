@@ -41,6 +41,10 @@ export default function AdminPage() {
         Gestiona las{" "}
         <Link href="/admin/salas" className="underline">
           salas
+        </Link>{" "}
+        y revisa los{" "}
+        <Link href="/admin/reportes" className="underline">
+          reportes por día
         </Link>
         .
       </p>
