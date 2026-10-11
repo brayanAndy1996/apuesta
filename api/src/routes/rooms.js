@@ -11,6 +11,7 @@ import {
   payBet,
   placeBet,
   publicBetsView,
+  simulateBets,
   recentRoundsView,
   refundBet,
   roundAccounting,
@@ -165,6 +166,7 @@ const publicBet = (bet) => ({
   payoutCentimos: bet.payoutCentimos,
   paidOperationNumber: bet.paidOperationNumber,
   paidAt: bet.paidAt,
+  isSimulated: bet.isSimulated,
 });
 
 const reply = (res, result, okStatus = 200) =>
@@ -207,6 +209,38 @@ roomsRouter.post("/:code/bets", requireAuth, async (req, res, next) => {
     if (err.name === "SequelizeUniqueConstraintError") {
       return res.status(409).json({ error: "número de operación ya registrado" });
     }
+    next(err);
+  }
+});
+
+// R31: simulador de demo — crea apuestas ficticias marcadas.
+roomsRouter.post("/:code/simulate", requireAuth, async (req, res, next) => {
+  try {
+    const room = await findRoomByCode(req.params.code);
+    if (!room) {
+      return res.status(404).json({ error: "sala no encontrada" });
+    }
+    if (!cashierOf(room, req.user)) {
+      return res.status(403).json({ error: "sin permiso" });
+    }
+    const parsed = z
+      .object({
+        count: z.number().int().min(1).max(20),
+        side: z.enum(["red", "blue"]).nullish(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "datos inválidos" });
+    }
+    const result = await simulateBets(room, {
+      ...parsed.data,
+      cashierId: req.user.role === "cashier" ? req.user.id : null,
+    });
+    res.status(201).json({
+      bets: result.bets.map(publicBet),
+      round: { seq: result.round.seq, state: result.round.state },
+    });
+  } catch (err) {
     next(err);
   }
 });

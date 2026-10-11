@@ -612,6 +612,7 @@ export async function publicBetsView(room) {
       side: b.side,
       status: b.status,
       amountCentimos: b.amountCentimos,
+      isSimulated: b.isSimulated,
       createdAt: b.createdAt,
       winRangeCentimos: winRangeCentimos(b.amountCentimos, slots, b.side),
     })),
@@ -760,4 +761,42 @@ export async function recentRoundsView(room, limit = 20) {
     result: resultOf(r, slots),
     createdAt: r.createdAt,
   }));
+}
+
+// R31: simulador de demo — genera apuestas ficticias que pasan por el mismo
+// placeBet que las reales (misma cola, misma bolsa, misma liquidación).
+const SIM_NAMES = [
+  "Demo Ana", "Demo Bruno", "Demo Carla", "Demo Diego", "Demo Elena",
+  "Demo Félix", "Demo Gabi", "Demo Hugo", "Demo Inés", "Demo Jorge",
+  "Demo Katia", "Demo Luis", "Demo Mara", "Demo Nico", "Demo Olga",
+];
+const SIDES = ["red", "blue"];
+
+const rand = (n) => Math.floor(Math.random() * n);
+const pick = (list, i) => list[i % list.length];
+
+export async function simulateBets(room, { count, side = null, cashierId = null }) {
+  const created = [];
+  let lastRound = null;
+  for (let i = 0; i < count; i += 1) {
+    // Monto redondo en soles dentro de los topes de la sala.
+    const minS = Math.max(1, Math.ceil(room.minBetCentimos / 100));
+    const maxS = Math.max(minS, Math.floor(room.maxBetCentimos / 100));
+    const amountCentimos = (minS + rand(maxS - minS + 1)) * 100;
+    const chosen = side ?? SIDES[i % SIDES.length];
+    const result = await placeBet(room, {
+      side: chosen,
+      amountCentimos,
+      playerName: pick(SIM_NAMES, rand(SIM_NAMES.length) + i),
+      phone: `9${String(10000000 + rand(89999999))}`,
+      method: rand(2) === 0 ? "yape" : "plin",
+      operationNumber: `SIM-${Date.now()}-${i}-${rand(10000)}`,
+      paymentVerified: true,
+      isSimulated: true,
+      cashierId,
+    });
+    created.push(...result.bets);
+    lastRound = result.round;
+  }
+  return { bets: created, round: lastRound };
 }

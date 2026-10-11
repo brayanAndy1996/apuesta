@@ -373,6 +373,46 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/RoundSummary" }
         "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/simulate:
+    post:
+      operationId: simulateBets
+      summary: "R31: genera apuestas ficticias marcadas (`isSimulated`, nº `SIM-…`) que pasan por la cola/bolsa normal — solo cajero asignado o admin"
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [count]
+              properties:
+                count: { type: integer, minimum: 1, maximum: 20 }
+                side: { type: string, enum: [red, blue], nullable: true }
+      responses:
+        "201":
+          description: Apuestas registradas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/Bet" }
+                  round:
+                    type: object
+                    properties:
+                      seq: { type: integer }
+                      state: { type: string }
+        "400": { description: Datos inválidos }
+        "401": { description: Sin token }
+        "403": { description: Sin permiso en la sala }
+        "404": { description: Sala no encontrada }
   /rooms/{code}/winners:
     get:
       operationId: listWinners

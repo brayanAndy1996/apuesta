@@ -115,6 +115,13 @@ Bet.init(
     annulledById: { type: DataTypes.UUID, allowNull: true, field: "annulled_by_id" },
     refundedById: { type: DataTypes.UUID, allowNull: true, field: "refunded_by_id" },
     paidById: { type: DataTypes.UUID, allowNull: true, field: "paid_by_id" },
+    // R31: apuestas generadas por el simulador de demo.
+    isSimulated: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: "is_simulated",
+    },
     refundOperationNumber: {
       type: DataTypes.STRING(64),
       allowNull: true,
