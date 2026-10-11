@@ -15,6 +15,25 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 013)
+
+- `bets.is_simulated` (migración 20261011010000). `simulateBets` en
+  roundService: nombres `Demo <nombre>`, teléfonos ficticios, nº `SIM-<ts>-i-r`
+  (jamás colisiona con uno real), `payment_verified=true`, montos en soles
+  redondos dentro de los topes; cada una entra por `placeBet` real (misma
+  cola/bolsa/liquidación) y puede arrancar el countdown.
+- `POST /rooms/:code/simulate {count 1-20, side?}` — cajero asignado o admin.
+- `isSimulated` expuesto en `publicBet` (bandeja cajero) y `publicBetsView`
+  (público); NO es settable vía `POST /bets` — el `betSchema` de zod lo
+  descarta, así que solo `/simulate` puede marcar la flag.
+- Web: botón "Simular apuestas" (5) en el formulario del cajero; badge
+  "demo" violeta en la lista pública de `/sala/[code]`.
+- adversarial-tester (pasada documentada): sin críticos/altos.
+  - La flag no es falsificable desde `/bets` (zod strip).
+  - Colisión de `SIM-` op numbers: `Date.now()+idx+rand` + retry de placeBet
+    ante unique-violation — despreciable.
+  - `action` de /cajero ahora acepta cualquier 2xx (simulate devuelve 201).
+
 ## Estado (al terminar spec 012)
 
 - `bets` gana `annulled_by_id` / `refunded_by_id` / `paid_by_id` (migración

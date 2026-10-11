@@ -27,7 +27,7 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 | 010 | Armar la apuesta: QR + WhatsApp ya escrito | 🟡 en PR #11 | #11 |
 | 011 | Reglas y confianza: stats, verificador, FAQ | 🟡 en PR #12 | #12 |
 | 012 | Reportes por sala y día, y auditoría | 🟡 en PR #14 | #14 |
-| 013 | Modo demo y simulador | ⬜ pendiente | — |
+| 013 | Modo demo y simulador | 🟡 en PR #15 | #15 |
 
 ## Deuda técnica conocida
 
