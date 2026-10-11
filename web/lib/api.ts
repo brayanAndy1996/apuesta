@@ -157,6 +157,7 @@ export type PublicBet = {
   side: "red" | "blue" | null;
   status: string;
   amountCentimos: number;
+  isSimulated?: boolean;
   createdAt: string;
   winRangeCentimos: MissingRange | null;
 };
@@ -314,6 +315,18 @@ export async function parseMessage(token: string, code: string, message: string)
     body: { message },
     token,
   });
+}
+
+// R31: simulador de demo — genera apuestas ficticias marcadas.
+export async function simulateBets(
+  token: string,
+  code: string,
+  body: { count: number; side?: "red" | "blue" | null },
+) {
+  return request<{ bets: unknown[]; round: { seq: number; state: string } }>(
+    `/rooms/${code}/simulate`,
+    { method: "POST", body, token },
+  );
 }
 
 // Reportes y auditoría del admin (spec 012, R23/R30).

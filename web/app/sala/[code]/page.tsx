@@ -131,7 +131,14 @@ function BetList({ bets }: { bets: PublicBet[] }) {
       {bets.map((b) => (
         <li key={b.id} className="flex items-center gap-2 py-2">
           <span className="w-14 text-neutral-500">{hora(b.createdAt)}</span>
-          <span className="flex-1 font-medium">{b.displayName ?? "—"}</span>
+          <span className="flex-1 font-medium">
+            {b.displayName ?? "—"}
+            {b.isSimulated && (
+              <span className="ml-1 rounded bg-violet-950 px-1 text-[10px] text-violet-300">
+                demo
+              </span>
+            )}
+          </span>
           <span className="text-neutral-400">{b.maskedPhone ?? ""}</span>
           <span
             className={

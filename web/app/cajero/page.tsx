@@ -15,6 +15,7 @@ import {
   payWinner,
   refundBet,
   registerBet,
+  simulateBets,
   type Bet,
   type Winner,
 } from "@/lib/api";
@@ -105,7 +106,7 @@ export default function CajeroPage() {
   const action = useMutation({
     mutationFn: (fn: () => Promise<{ status: number; data: unknown }>) => fn(),
     onSuccess: (res) => {
-      if (res.status === 200) {
+      if (res.status >= 200 && res.status < 300) {
         setError(null);
         invalidate();
         queryClient.invalidateQueries({ queryKey: ["winners", code] });
@@ -157,7 +158,18 @@ export default function CajeroPage() {
       {code && (
         <>
           <form onSubmit={onSubmit} className="mt-6 space-y-3 rounded border border-neutral-800 p-4">
-            <h2 className="font-semibold">Registrar apuesta</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">Registrar apuesta</h2>
+              <button
+                type="button"
+                onClick={() => action.mutate(() => simulateBets(token ?? "", code, { count: 5 }))}
+                className="rounded bg-violet-800 px-3 py-1 text-xs font-semibold disabled:opacity-50"
+                disabled={action.isPending || !open}
+                title="Genera 5 apuestas de prueba (dinero ficticio)"
+              >
+                Simular apuestas
+              </button>
+            </div>
             <textarea
               className="w-full rounded bg-neutral-900 p-2 text-sm"
               rows={2}
