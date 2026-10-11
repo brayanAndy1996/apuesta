@@ -26,7 +26,7 @@ Estado del proyecto siguiendo el roadmap de 13 specs (planificacion.md §7).
 | 009 | Pantalla pública en vivo: bolsa, cola, lista enmascarada, socket | 🟡 en PR #10 | #10 |
 | 010 | Armar la apuesta: QR + WhatsApp ya escrito | 🟡 en PR #11 | #11 |
 | 011 | Reglas y confianza: stats, verificador, FAQ | 🟡 en PR #12 | #12 |
-| 012 | Reportes por sala y día, y auditoría | ⬜ pendiente | — |
+| 012 | Reportes por sala y día, y auditoría | 🟡 en PR #14 | #14 |
 | 013 | Modo demo y simulador | ⬜ pendiente | — |
 
 ## Deuda técnica conocida

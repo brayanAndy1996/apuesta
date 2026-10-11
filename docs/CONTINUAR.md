@@ -15,6 +15,27 @@ Metodología: una spec por PR, escrita antes del código; dominio puro en
 - Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
   ADR-002 admisión R11 literal + reintento de igualación).
 
+## Estado (al terminar spec 012)
+
+- `bets` gana `annulled_by_id` / `refunded_by_id` / `paid_by_id` (migración
+  20261011000000); `annulBet`/`refundBet`/`payBet` reciben `actorId` desde
+  `req.user.id`.
+- `api/src/services/reportService.js`: `limaDayRange("YYYY-MM-DD")` →
+  [00:00, +24h) en America/Lima (fijo -05:00); `dailyReport` agrega por
+  `originRoundId` en rondas creadas ese día (collected = pooled + carried +
+  anulled + refunded, igual que R26); `auditView` lista eventos
+  ANULADA/DEVUELTA/PAGADA con actor y hora, desc, top 200.
+- `GET /admin/reports/daily?code&date` y `GET /admin/audit?code&date`
+  (adminRouter ya es requireAuth+requireRole ADMIN para todo).
+- `web/app/admin/reportes/page.tsx`: selector sala+fecha, tarjetas de
+  movimiento/premios y tabla de auditoría. Enlace en `/admin`.
+- adversarial-tester (pasada documentada): sin críticos/altos.
+  - ANULADA/DEVUELTA reportan `at` desde `updatedAt` (estados terminales: no
+    vuelven a tocarse); anulaciones previas a esta migración salen sin actor
+    ("—") — degradado honesto.
+  - `paidAt` es el instante real; reportes y auditoría coinciden porque ambos
+    usan el mismo conjunto de apuestas del día.
+
 ## Estado (al terminar spec 011)
 
 - `GET /rooms/:code/stats` (público): `statsView` en roundService — `rounds`
