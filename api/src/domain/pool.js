@@ -114,10 +114,10 @@ export function missingFor(state, side) {
 }
 
 // R16: igualación al cumplirse el tiempo máximo.
-// Solo si hay demanda en ambos colores y la bolsa no es segura: de la cola del
-// color que falta entra exactamente lo necesario para igualar, en orden; una
-// apuesta puede entrar en parte y el resto queda al inicio de su cola.
-// spun=true cuando quedó igualada y puede girar de inmediato.
+// Solo si hay demanda en ambos colores y la bolsa no es segura: las colas
+// suben ambas bolsas hasta un mismo nivel T (la demanda del color más flojo),
+// en orden FIFO; una apuesta puede entrar en parte y el resto queda al
+// inicio de su cola. spun=true solo si el resultado es una bolsa segura.
 export function equalize(state) {
   const { pools, queues, multMax, minTotal } = state;
   if (isSecure(pools[SIDES.RED], pools[SIDES.BLUE], multMax, minTotal)) {
@@ -127,20 +127,25 @@ export function equalize(state) {
   const demandBlue = pools[SIDES.BLUE] + queueSum(queues[SIDES.BLUE]);
   if (demandRed === 0 || demandBlue === 0) return { state, spun: false };
 
-  const [heavy, light] =
-    pools[SIDES.RED] >= pools[SIDES.BLUE] ? [SIDES.RED, SIDES.BLUE] : [SIDES.BLUE, SIDES.RED];
-  const deficit = pools[heavy] - pools[light];
-  if (deficit === 0) return { state, spun: false };
-  if (queueSum(queues[light]) < deficit) return { state, spun: false };
+  // T = la demanda del color más flojo. Si una bolsa ya supera T no se puede
+  // igualar (la bolsa no se puede vaciar); si T no forma bolsa segura no hay
+  // material suficiente (p. ej. total por debajo del mínimo).
+  const t = Math.min(demandRed, demandBlue);
+  if (pools[SIDES.RED] > t || pools[SIDES.BLUE] > t) {
+    return { state, spun: false };
+  }
+  if (!isSecure(t, t, multMax, minTotal)) return { state, spun: false };
 
-  let remaining = deficit;
-  while (remaining > 0) {
-    const front = queues[light][0];
-    const take = Math.min(front.amount, remaining);
-    front.amount -= take;
-    pools[light] += take;
-    remaining -= take;
-    if (front.amount === 0) queues[light].shift();
+  for (const side of [SIDES.RED, SIDES.BLUE]) {
+    let remaining = t - pools[side];
+    while (remaining > 0) {
+      const front = queues[side][0];
+      const take = Math.min(front.amount, remaining);
+      front.amount -= take;
+      pools[side] += take;
+      remaining -= take;
+      if (front.amount === 0) queues[side].shift();
+    }
   }
   return { state, spun: true };
 }

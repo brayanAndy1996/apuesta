@@ -110,10 +110,16 @@ const secureNow = (state) =>
 
 // R15: ajusta estado/temporizadores tras admitir apuestas a la bolsa.
 function refreshTimers(round, state, admittedCount, now) {
-  if (admittedCount === 0) return;
-  if (round.maxEndsAt === null) {
+  // El reloj máximo de 5 min arranca con la primera apuesta con color de la
+  // ronda, aunque quede en cola: si no, una cola que nunca puede entrar a la
+  // bolsa bloquearía la igualación para siempre (deadlock).
+  if (
+    round.maxEndsAt === null &&
+    (state.pools.red + state.pools.blue > 0 || queuedBetsOf(state).length > 0)
+  ) {
     round.maxEndsAt = new Date(now.getTime() + MAX_ROUND_MS);
   }
+  if (admittedCount === 0) return;
   if (secureNow(state)) {
     const remaining =
       round.state === PAUSADA && round.countdownRemainingMs !== null
