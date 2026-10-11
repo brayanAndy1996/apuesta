@@ -8,7 +8,7 @@ import { sequelize } from "../src/db.js";
 import { hashCredential } from "../src/lib/crypto.js";
 import { seedHash } from "../src/lib/seed.js";
 import { Room, RoomSlot } from "../src/models/room.js";
-import { Bet, ROUND_STATES, Round } from "../src/models/round.js";
+import { Bet, OPEN_STATES, ROUND_STATES, Round } from "../src/models/round.js";
 import { ROLES, User } from "../src/models/user.js";
 import { processExpiredRounds } from "../src/services/roundService.js";
 
@@ -404,4 +404,42 @@ test("AC-09: permisos y validación de la apuesta provisional", async () => {
     token: cashierToken,
   });
   assert.equal(badSide.status, 400);
+});
+
+test("FIX cola bloqueada: el máximo corre desde la primera apuesta y la igualación destraba", async () => {
+  const code = (await makeRoom()).code;
+  // Deadlock: ningún frente puede entrar solo a la bolsa.
+  await bet(code, "red", 2500);
+  await bet(code, "blue", 1500);
+
+  let view = (await api(`/rooms/${code}/round`)).body.round;
+  assert.equal(view.state, "ESPERANDO");
+  assert.deepEqual(view.pools, { red: 0, blue: 0 });
+  assert.deepEqual(view.queued, { red: 2500, blue: 1500 });
+  // El reloj de 5 min corre aunque nada se haya admitido todavía.
+  assert.ok(view.maxEndsAt);
+
+  const round = await Round.findOne({
+    include: [{ model: Room, as: "room", where: { code } }],
+    order: [["seq", "DESC"]],
+  });
+  await processExpiredRounds(new Date(round.maxEndsAt.getTime() + 10));
+
+  await round.reload();
+  assert.equal(round.state, "GIRANDO");
+  assert.equal(round.poolRedCentimos, 1500);
+  assert.equal(round.poolBlueCentimos, 1500);
+
+  // El sobrante rojo (1000) quedó en cola y viaja a la ronda siguiente.
+  await processExpiredRounds(new Date(round.girandoEndsAt.getTime() + 10));
+  const next = await Round.findOne({
+    where: { roomId: round.roomId, state: OPEN_STATES },
+    order: [["seq", "DESC"]],
+  });
+  const carried = await Bet.findAll({
+    where: { roundId: next.id, status: "QUEUED" },
+  });
+  assert.equal(carried.length, 1);
+  assert.equal(carried[0].amountCentimos, 1000);
+  assert.equal(carried[0].side, "red");
 });

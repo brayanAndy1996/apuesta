@@ -130,6 +130,52 @@ test("equalize: sin demanda en ambos colores no gira", () => {
   assert.equal(spun, false);
 });
 
+test("equalize: cola bloqueada en ambos colores — saca simétrico de las colas", () => {
+  // Deadlock: ningún frente puede entrar solo (2500 rojo + 1500 azul con
+  // bolsas en 0). La igualación debe subir ambas bolsas por igual.
+  const state = replay([
+    { side: "red", amount: 2500 },
+    { side: "blue", amount: 1500 },
+  ]);
+  assert.deepEqual(totals(state).pool, { red: 0, blue: 0 });
+
+  const { spun } = equalize(state);
+  assert.equal(spun, true);
+  assert.deepEqual(totals(state).pool, { red: 1500, blue: 1500 });
+  assert.equal(totals(state).queued.red, 1000);
+  assert.equal(state.queues.red[0].amount, 1000); // el frente rojo se partió
+});
+
+test("equalize: deadlock sin material para bolsa segura no gira", () => {
+  const state = replay([
+    { side: "red", amount: 300 },
+    { side: "blue", amount: 300 },
+  ]);
+  const { spun } = equalize(state);
+  assert.equal(spun, false); // 300/300 < minTotal
+  assert.deepEqual(totals(state).queued, { red: 300, blue: 300 });
+});
+
+test("equalize: igualar por debajo del mínimo no gira ni mueve dinero", () => {
+  const state = createPool({ multMax: MULT });
+  state.pools.red = 300;
+  state.queues.blue.push({ seq: 1, side: "blue", amount: 300 });
+  state.seq = 1;
+  const { spun } = equalize(state);
+  assert.equal(spun, false);
+  assert.equal(totals(state).pool.blue, 0);
+  assert.equal(totals(state).queued.blue, 300);
+});
+
+test("equalize: una bolsa ya supera la demanda del otro color — no gira", () => {
+  const state = createPool({ multMax: MULT });
+  state.pools.red = 3000;
+  state.queues.blue.push({ seq: 1, side: "blue", amount: 1000 });
+  state.seq = 1;
+  const { spun } = equalize(state);
+  assert.equal(spun, false); // no hay azules suficientes para igualar 3000
+});
+
 test("missingFor: reporta el rango del otro color que desbloquea el frente", () => {
   const state = createPool({ multMax: MULT });
   state.pools.red = 3000;
