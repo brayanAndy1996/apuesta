@@ -183,6 +183,115 @@ paths:
         "401": { description: Sin token }
         "403": { description: No es admin }
         "404": { description: Cajero no encontrado }
+  /admin/reports/daily:
+    get:
+      operationId: dailyReport
+      summary: Reporte del día por sala — recibido, bolsa, espera, anulado, devuelto, premios y ganadores (solo admin). Día en America/Lima.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date }, description: "YYYY-MM-DD" }
+      responses:
+        "200":
+          description: Agregado del día
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - room
+                  - date
+                  - rounds
+                  - bets
+                  - collectedCentimos
+                  - pooledCentimos
+                  - carriedCentimos
+                  - annulledCentimos
+                  - annulledCount
+                  - refundedCentimos
+                  - refundedCount
+                  - payoutsCentimos
+                  - payoutsPaidCentimos
+                  - winners
+                properties:
+                  room:
+                    type: object
+                    required: [code, name]
+                    properties:
+                      code: { type: string }
+                      name: { type: string }
+                  date: { type: string }
+                  rounds: { type: integer }
+                  bets: { type: integer }
+                  collectedCentimos: { type: integer }
+                  pooledCentimos: { type: integer }
+                  carriedCentimos: { type: integer }
+                  annulledCentimos: { type: integer }
+                  annulledCount: { type: integer }
+                  refundedCentimos: { type: integer }
+                  refundedCount: { type: integer }
+                  payoutsCentimos: { type: integer }
+                  payoutsPaidCentimos: { type: integer }
+                  winners:
+                    type: object
+                    required: [total, paid, pending]
+                    properties:
+                      total: { type: integer }
+                      paid: { type: integer }
+                      pending: { type: integer }
+        "400": { description: date inválida }
+        "401": { description: Sin token }
+        "403": { description: No es admin }
+        "404": { description: Sala no encontrada }
+  /admin/audit:
+    get:
+      operationId: auditView
+      summary: Auditoría del día — eventos ANULADA/DEVUELTA/PAGADA con actor, hora y detalle (solo admin). Día en America/Lima.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date }, description: "YYYY-MM-DD" }
+      responses:
+        "200":
+          description: Eventos auditables ordenados por hora descendente
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - type
+                        - at
+                        - roundSeq
+                        - betSeq
+                        - amountCentimos
+                        - detail
+                        - actor
+                      properties:
+                        type: { type: string, enum: [ANULADA, DEVUELTA, PAGADA] }
+                        at: { type: string, format: date-time }
+                        roundSeq: { type: integer, nullable: true }
+                        betSeq: { type: integer }
+                        playerName: { type: string, nullable: true }
+                        amountCentimos: { type: integer }
+                        payoutCentimos: { type: integer }
+                        detail: { type: string, nullable: true, description: "motivo o nº de operación" }
+                        actor:
+                          type: object
+                          nullable: true
+                          required: [id, name]
+                          properties:
+                            id: { type: string, format: uuid }
+                            name: { type: string, nullable: true }
+        "400": { description: date inválida }
+        "401": { description: Sin token }
+        "403": { description: No es admin }
+        "404": { description: Sala no encontrada }
   /rooms:
     get:
       operationId: listPublicRooms

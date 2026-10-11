@@ -310,7 +310,7 @@ export async function assignBetSide(room, betId, side, now = new Date()) {
 // R23: anula una apuesta con motivo, solo mientras su ronda está abierta.
 // Si estaba en POOL se descuenta de la bolsa y se reevalúa seguridad:
 // quedar insegura pausa la cuenta conservando lo que quedaba.
-export async function annulBet(room, betId, reason, now = new Date()) {
+export async function annulBet(room, betId, reason, actorId, now = new Date()) {
   return sequelize.transaction(async (transaction) => {
     const bet = await Bet.findByPk(betId, {
       lock: transaction.LOCK.UPDATE,
@@ -342,6 +342,7 @@ export async function annulBet(room, betId, reason, now = new Date()) {
     }
     bet.status = BET_STATUS.ANULADA;
     bet.annulReason = reason;
+    bet.annulledById = actorId ?? null;
     await bet.save({ transaction });
     await round.save({ transaction });
     return { round, bet };
@@ -352,7 +353,7 @@ export async function annulBet(room, betId, reason, now = new Date()) {
 }
 
 // R24: devuelve (saldo a favor) una apuesta que sigue en espera.
-export async function refundBet(room, betId, refundOperationNumber) {
+export async function refundBet(room, betId, refundOperationNumber, actorId) {
   return sequelize.transaction(async (transaction) => {
     const bet = await Bet.findByPk(betId, {
       lock: transaction.LOCK.UPDATE,
@@ -371,6 +372,7 @@ export async function refundBet(room, betId, refundOperationNumber) {
     }
     bet.status = BET_STATUS.DEVUELTA;
     bet.refundOperationNumber = refundOperationNumber;
+    bet.refundedById = actorId ?? null;
     await bet.save({ transaction });
     return { round, bet };
   }).then((result) => {
@@ -675,7 +677,7 @@ export async function winnersView(room, seq = null) {
 }
 
 // R25: marca el premio como pagado con el nº de operación del envío.
-export async function payBet(room, betId, operationNumber) {
+export async function payBet(room, betId, operationNumber, actorId) {
   return sequelize.transaction(async (transaction) => {
     const bet = await Bet.findByPk(betId, {
       lock: transaction.LOCK.UPDATE,
@@ -696,6 +698,7 @@ export async function payBet(room, betId, operationNumber) {
     }
     bet.paidOperationNumber = operationNumber;
     bet.paidAt = new Date();
+    bet.paidById = actorId ?? null;
     await bet.save({ transaction });
     return { round: bet.round, bet };
   }).then((result) => {

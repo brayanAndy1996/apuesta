@@ -111,6 +111,10 @@ Bet.init(
     },
     cashierId: { type: DataTypes.UUID, allowNull: true, field: "cashier_id" },
     annulReason: { type: DataTypes.TEXT, allowNull: true, field: "annul_reason" },
+    // Auditoría (spec 012): quién anuló / devolvió / marcó pagado.
+    annulledById: { type: DataTypes.UUID, allowNull: true, field: "annulled_by_id" },
+    refundedById: { type: DataTypes.UUID, allowNull: true, field: "refunded_by_id" },
+    paidById: { type: DataTypes.UUID, allowNull: true, field: "paid_by_id" },
     refundOperationNumber: {
       type: DataTypes.STRING(64),
       allowNull: true,

@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { hashCredential } from "../lib/crypto.js";
+import { Room } from "../models/room.js";
 import { publicUser, ROLES, User } from "../models/user.js";
+import { auditView, dailyReport } from "../services/reportService.js";
 
 const pin = z.string().regex(/^\d{4,6}$/, "el PIN debe tener entre 4 y 6 dígitos");
 
@@ -109,6 +111,35 @@ adminRouter.patch("/cashiers/:id", async (req, res, next) => {
     if (newPin !== undefined) cashier.credentialHash = await hashCredential(newPin);
     await cashier.save();
     res.json({ user: publicUser(cashier) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Spec 012 (R23, R30): reporte del día por sala y auditoría del cajero.
+adminRouter.get("/reports/daily", async (req, res, next) => {
+  try {
+    const room = await Room.findOne({
+      where: { code: String(req.query.code ?? "").toUpperCase() },
+    });
+    if (!room) return res.status(404).json({ error: "sala no encontrada" });
+    const out = await dailyReport(room, req.query.date);
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get("/audit", async (req, res, next) => {
+  try {
+    const room = await Room.findOne({
+      where: { code: String(req.query.code ?? "").toUpperCase() },
+    });
+    if (!room) return res.status(404).json({ error: "sala no encontrada" });
+    const out = await auditView(room, req.query.date);
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json(out);
   } catch (err) {
     next(err);
   }

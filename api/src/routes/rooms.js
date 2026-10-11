@@ -259,14 +259,14 @@ roomsRouter.patch(
 roomsRouter.post(
   "/:code/bets/:betId/annul",
   requireAuth,
-  betAction((room, betId, body) => {
+  betAction((room, betId, body, user) => {
     const parsed = z
       .object({ reason: z.string().trim().min(1).max(500) })
       .safeParse(body);
     if (!parsed.success) {
       return { error: "motivo requerido", status: 400 };
     }
-    return annulBet(room, betId, parsed.data.reason);
+    return annulBet(room, betId, parsed.data.reason, user.id);
   }),
 );
 
@@ -274,14 +274,14 @@ roomsRouter.post(
 roomsRouter.post(
   "/:code/bets/:betId/pay",
   requireAuth,
-  betAction((room, betId, body) => {
+  betAction((room, betId, body, user) => {
     const parsed = z
       .object({ operationNumber: z.string().trim().min(1).max(64) })
       .safeParse(body);
     if (!parsed.success) {
       return { error: "número de operación requerido", status: 400 };
     }
-    return payBet(room, betId, parsed.data.operationNumber);
+    return payBet(room, betId, parsed.data.operationNumber, user.id);
   }),
 );
 
@@ -333,14 +333,14 @@ roomsRouter.get("/:code/rounds/:seq/accounting", requireAuth, async (req, res, n
 roomsRouter.post(
   "/:code/bets/:betId/refund",
   requireAuth,
-  betAction((room, betId, body) => {
+  betAction((room, betId, body, user) => {
     const parsed = z
       .object({ refundOperationNumber: z.string().trim().min(1).max(64) })
       .safeParse(body);
     if (!parsed.success) {
       return { error: "número de operación de devolución requerido", status: 400 };
     }
-    return refundBet(room, betId, parsed.data.refundOperationNumber);
+    return refundBet(room, betId, parsed.data.refundOperationNumber, user.id);
   }),
 );
 
