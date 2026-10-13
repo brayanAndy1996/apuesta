@@ -22,7 +22,11 @@ fi
 # Espera a que Postgres acepte conexiones
 for i in $(seq 1 30); do
   if docker exec "$CONTAINER" pg_isready -U apuesta -d apuesta >/dev/null 2>&1; then
-    echo "PostgreSQL listo en localhost:5432 (bd: apuesta)"
+    # BD dedicada para tests (NODE_ENV=test)
+    docker exec "$CONTAINER" psql -U apuesta -d apuesta -tAc \
+      "SELECT 1 FROM pg_database WHERE datname='apuesta_test'" | grep -q 1 ||
+      docker exec "$CONTAINER" psql -U apuesta -d apuesta -c "CREATE DATABASE apuesta_test" >/dev/null
+    echo "PostgreSQL listo en localhost:5432 (bd: apuesta, apuesta_test)"
     exit 0
   fi
   sleep 1

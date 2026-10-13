@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { hashCredential } from "../lib/crypto.js";
+import { Room } from "../models/room.js";
 import { publicUser, ROLES, User } from "../models/user.js";
+import { auditView, dailyReport } from "../services/reportService.js";
 
 const pin = z.string().regex(/^\d{4,6}$/, "el PIN debe tener entre 4 y 6 dígitos");
 
@@ -20,21 +22,41 @@ const patchSchema = z
   })
   .refine((data) => Object.keys(data).length > 0, { message: "nada que actualizar" });
 
-// Genera un username único a partir del nombre: "Rosa Quispe" → "rosa.quispe"
-// (o "rosa.quispe2", "rosa.quispe3", … si ya existe).
-async function uniqueUsername(name) {
+const USERNAME_MAX = 64;
+const USERNAME_BASE_MAX = 48; // deja margen para sufijos numéricos
+
+function usernameBase(name) {
   const base = name
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // quita marcas diacríticas (á→a, ñ→n)
     .replace(/[^a-z0-9]+/g, ".")
-    .replace(/^\.|\.$/g, "") || "cajero";
+    .replace(/^\.|\.$/g, "")
+    .slice(0, USERNAME_BASE_MAX)
+    .replace(/\.$/, "");
+  return base || "cajero";
+}
 
+// Inserta el cajero con username único derivado del nombre. Reintenta con
+// sufijo si otro request gana la carrera por el mismo username.
+async function createCashierWithUsername({ name, credentialHash }) {
+  const base = usernameBase(name);
   let candidate = base;
   for (let i = 2; ; i += 1) {
-    const exists = await User.findOne({ where: { username: candidate } });
-    if (!exists) return candidate;
-    candidate = `${base}${i}`;
+    try {
+      return await User.create({
+        role: ROLES.CASHIER,
+        username: candidate.slice(0, USERNAME_MAX),
+        name,
+        credentialHash,
+      });
+    } catch (err) {
+      if (err.name === "SequelizeUniqueConstraintError") {
+        candidate = `${base}${i}`.slice(0, USERNAME_MAX);
+        continue;
+      }
+      throw err;
+    }
   }
 }
 
@@ -49,9 +71,7 @@ adminRouter.post("/cashiers", async (req, res, next) => {
   }
   try {
     const { name, pin: rawPin } = parsed.data;
-    const user = await User.create({
-      role: ROLES.CASHIER,
-      username: await uniqueUsername(name),
+    const user = await createCashierWithUsername({
       name,
       credentialHash: await hashCredential(rawPin),
     });
@@ -91,6 +111,35 @@ adminRouter.patch("/cashiers/:id", async (req, res, next) => {
     if (newPin !== undefined) cashier.credentialHash = await hashCredential(newPin);
     await cashier.save();
     res.json({ user: publicUser(cashier) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Spec 012 (R23, R30): reporte del día por sala y auditoría del cajero.
+adminRouter.get("/reports/daily", async (req, res, next) => {
+  try {
+    const room = await Room.findOne({
+      where: { code: String(req.query.code ?? "").toUpperCase() },
+    });
+    if (!room) return res.status(404).json({ error: "sala no encontrada" });
+    const out = await dailyReport(room, req.query.date);
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get("/audit", async (req, res, next) => {
+  try {
+    const room = await Room.findOne({
+      where: { code: String(req.query.code ?? "").toUpperCase() },
+    });
+    if (!room) return res.status(404).json({ error: "sala no encontrada" });
+    const out = await auditView(room, req.query.date);
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json(out);
   } catch (err) {
     next(err);
   }

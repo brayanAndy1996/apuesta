@@ -87,6 +87,14 @@ paths:
                 properties:
                   user:
                     $ref: "#/components/schemas/User"
+                  room:
+                    oneOf:
+                      - type: object
+                        properties:
+                          code: { type: string }
+                          name: { type: string }
+                      - type: "null"
+                    description: Sala que atiende el cajero (null para admin)
         "401": { description: Token ausente o inválido }
   /admin/cashiers:
     post:
@@ -175,6 +183,763 @@ paths:
         "401": { description: Sin token }
         "403": { description: No es admin }
         "404": { description: Cajero no encontrado }
+  /admin/reports/daily:
+    get:
+      operationId: dailyReport
+      summary: Reporte del día por sala — recibido, bolsa, espera, anulado, devuelto, premios y ganadores (solo admin). Día en America/Lima.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date }, description: "YYYY-MM-DD" }
+      responses:
+        "200":
+          description: Agregado del día
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - room
+                  - date
+                  - rounds
+                  - bets
+                  - collectedCentimos
+                  - pooledCentimos
+                  - carriedCentimos
+                  - annulledCentimos
+                  - annulledCount
+                  - refundedCentimos
+                  - refundedCount
+                  - payoutsCentimos
+                  - payoutsPaidCentimos
+                  - winners
+                properties:
+                  room:
+                    type: object
+                    required: [code, name]
+                    properties:
+                      code: { type: string }
+                      name: { type: string }
+                  date: { type: string }
+                  rounds: { type: integer }
+                  bets: { type: integer }
+                  collectedCentimos: { type: integer }
+                  pooledCentimos: { type: integer }
+                  carriedCentimos: { type: integer }
+                  annulledCentimos: { type: integer }
+                  annulledCount: { type: integer }
+                  refundedCentimos: { type: integer }
+                  refundedCount: { type: integer }
+                  payoutsCentimos: { type: integer }
+                  payoutsPaidCentimos: { type: integer }
+                  winners:
+                    type: object
+                    required: [total, paid, pending]
+                    properties:
+                      total: { type: integer }
+                      paid: { type: integer }
+                      pending: { type: integer }
+        "400": { description: date inválida }
+        "401": { description: Sin token }
+        "403": { description: No es admin }
+        "404": { description: Sala no encontrada }
+  /admin/audit:
+    get:
+      operationId: auditView
+      summary: Auditoría del día — eventos ANULADA/DEVUELTA/PAGADA con actor, hora y detalle (solo admin). Día en America/Lima.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date }, description: "YYYY-MM-DD" }
+      responses:
+        "200":
+          description: Eventos auditables ordenados por hora descendente
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - type
+                        - at
+                        - roundSeq
+                        - betSeq
+                        - amountCentimos
+                        - detail
+                        - actor
+                      properties:
+                        type: { type: string, enum: [ANULADA, DEVUELTA, PAGADA] }
+                        at: { type: string, format: date-time }
+                        roundSeq: { type: integer, nullable: true }
+                        betSeq: { type: integer }
+                        playerName: { type: string, nullable: true }
+                        amountCentimos: { type: integer }
+                        payoutCentimos: { type: integer }
+                        detail: { type: string, nullable: true, description: "motivo o nº de operación" }
+                        actor:
+                          type: object
+                          nullable: true
+                          required: [id, name]
+                          properties:
+                            id: { type: string, format: uuid }
+                            name: { type: string, nullable: true }
+        "400": { description: date inválida }
+        "401": { description: Sin token }
+        "403": { description: No es admin }
+        "404": { description: Sala no encontrada }
+  /rooms:
+    get:
+      operationId: listPublicRooms
+      summary: Salas activas (público)
+      responses:
+        "200":
+          description: Lista de salas activas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rooms]
+                properties:
+                  rooms:
+                    type: array
+                    items: { $ref: "#/components/schemas/Room" }
+  /rooms/{code}:
+    get:
+      operationId: getPublicRoom
+      summary: Detalle público de una sala por código
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Sala con sus casillas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/round:
+    get:
+      operationId: getCurrentRound
+      summary: Ronda actual de una sala (pública)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Ronda abierta (o la última no liquidada)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [round]
+                properties:
+                  round: { $ref: "#/components/schemas/RoundView" }
+        "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/rounds:
+    get:
+      operationId: listRounds
+      summary: Historial público de rondas de la sala (más reciente primero)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Rondas recientes; la semilla solo aparece en LIQUIDADA (R8)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rounds]
+                properties:
+                  rounds:
+                    type: array
+                    items: { $ref: "#/components/schemas/RoundSummary" }
+        "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/simulate:
+    post:
+      operationId: simulateBets
+      summary: "R31: genera apuestas ficticias marcadas (`isSimulated`, nº `SIM-…`) que pasan por la cola/bolsa normal — solo cajero asignado o admin"
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [count]
+              properties:
+                count: { type: integer, minimum: 1, maximum: 20 }
+                side: { type: string, enum: [red, blue], nullable: true }
+      responses:
+        "201":
+          description: Apuestas registradas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/Bet" }
+                  round:
+                    type: object
+                    properties:
+                      seq: { type: integer }
+                      state: { type: string }
+        "400": { description: Datos inválidos }
+        "401": { description: Sin token }
+        "403": { description: Sin permiso en la sala }
+        "404": { description: Sala no encontrada }
+  /rooms/{code}/winners:
+    get:
+      operationId: listWinners
+      summary: '"Ganadores por pagar" de una ronda LIQUIDADA (spec 008, R25)'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: seq
+          in: query
+          schema: { type: integer }
+          description: Ronda específica; por defecto la última LIQUIDADA
+      responses:
+        "200":
+          description: Ganadores ordenados por estado (PENDIENTE primero)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [seq, winners]
+                properties:
+                  seq: { type: integer, nullable: true }
+                  winners:
+                    type: array
+                    items: { $ref: "#/components/schemas/Winner" }
+        "400": { description: seq inválido }
+        "401": { description: Token inválido }
+        "403": { description: Cajero no asignado a la sala }
+        "404": { description: Sala no encontrada }
+  /rooms/{code}/rounds/{seq}/accounting:
+    get:
+      operationId: roundAccounting
+      summary: Desglose contable de una ronda LIQUIDADA (spec 008)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: seq
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: "collected = paid + kept por color (R26)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoundAccounting" }
+        "400": { description: seq inválido }
+        "403": { description: Cajero no asignado a la sala }
+        "404": { description: Ronda no encontrada }
+  /rooms/{code}/bets/{betId}/pay:
+    post:
+      operationId: payBet
+      summary: Marca el premio como pagado con el nº de operación (spec 008)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: betId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operationNumber]
+              properties:
+                operationNumber: { type: string, minLength: 4, maxLength: 30 }
+      responses:
+        "200":
+          description: Apuesta pagada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+        "400": { description: Nº de operación inválido }
+        "403": { description: Cajero no asignado a la sala }
+        "404": { description: Apuesta no encontrada }
+        "409": { description: Ya pagada o sin premio }
+  /rooms/{code}/public-bets:
+    get:
+      operationId: listPublicBets
+      summary: Lista pública de apuestas de la ronda abierta (spec 009, R27)
+      description: Datos del jugador enmascarados (nombre + inicial del apellido, teléfono *** *** NNN). Excluye ANULADA/DEVUELTA; la bandeja "sin color" aparece con side=null.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Apuestas de la ronda abierta, más reciente primero
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [seq, bets]
+                properties:
+                  seq: { type: integer, nullable: true }
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/PublicBet" }
+        "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/bet-message:
+    get:
+      operationId: getBetMessage
+      summary: Mensaje R18 ya escrito + enlace wa.me de la sala (spec 010)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: side
+          in: query
+          schema:
+            oneOf:
+              - type: string
+                enum: [red, blue]
+              - type: "null"
+          description: Omitido = apuesta "sin color" (R22)
+        - name: amountCentimos
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: playerName
+          in: query
+          required: true
+          schema: { type: string }
+        - name: phone
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: '"APUESTA · Sala CODE · ROJO · S/ 10.00 · Nombre · 9xx"'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, whatsappUrl]
+                properties:
+                  message: { type: string }
+                  whatsappUrl: { type: string }
+        "400": { description: Parámetros inválidos }
+        "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/stats:
+    get:
+      operationId: getRoomStats
+      summary: Estadísticas reales vs esperadas de resultados (spec 011, R28)
+      description: |
+        Distribución real de las casillas ganadoras sobre las rondas LIQUIDADA
+        frente a la esperada por los pesos actuales. `rounds` cuenta todas las
+        rondas liquidadas; si el admin reemplazó las casillas, los resultados
+        históricos cuya casilla ya no existe solo cuentan en `rounds` (por eso
+        `perColor` puede sumar menos que `rounds` tras un cambio de config).
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Estadísticas por casilla y por color
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoomStats" }
+        "404": { description: Sala no encontrada o inactiva }
+  /rooms/{code}/bets:
+    get:
+      operationId: listRoundBets
+      summary: Bandeja del cajero — apuestas de la ronda abierta (spec 007)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 'Apuestas con datos del jugador y estado; `side: null` = bandeja "Sin color"'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seq: { type: integer, nullable: true }
+                  state: { type: string, nullable: true }
+                  open: { type: boolean }
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/CashierBet" }
+        "401": { description: Sin token }
+        "403": { description: Cajero no asignado a la sala ni admin }
+        "404": { description: Sala no encontrada o inactiva }
+    post:
+      operationId: placeBet
+      summary: Registro rápido del cajero (R19–R22)
+      description: |
+        Requiere `paymentVerified: true` (R19). El `operationNumber` es único por
+        método (R20). Si `amountCentimos` supera el máximo de la sala se registra
+        por el tope y el excedente queda como otra apuesta en espera (R21).
+        `side: null` envía el pago a la bandeja "Sin color" (R22).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCentimos, playerName, phone, method, operationNumber, paymentVerified]
+              properties:
+                side:
+                  oneOf:
+                    - type: string
+                      enum: [red, blue]
+                    - type: "null"
+                amountCentimos: { type: integer, minimum: 1 }
+                playerName: { type: string, maxLength: 160 }
+                phone: { type: string, maxLength: 32 }
+                method: { type: string, enum: [yape, plin] }
+                operationNumber: { type: string, maxLength: 64 }
+                paymentVerified: { type: boolean, enum: [true] }
+      responses:
+        "201":
+          description: Apuesta(s) registrada(s) — una por el tope y otra por el excedente si aplica
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bets, round]
+                properties:
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/CashierBet" }
+                  round:
+                    type: object
+                    properties:
+                      seq: { type: integer }
+                      state: { type: string }
+        "400": { description: Datos inválidos (incluye paymentVerified ≠ true) }
+        "401": { description: Sin token }
+        "403": { description: Cajero no asignado a la sala ni admin }
+        "404": { description: Sala no encontrada o inactiva }
+        "409": { description: Número de operación duplicado para el método (R20) }
+        "422": { description: Monto por debajo del mínimo de la sala }
+  /rooms/{code}/bets/{betId}:
+    patch:
+      operationId: assignBetSide
+      summary: Asignar color a una apuesta de la bandeja "Sin color" (R22)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: betId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [side]
+              properties:
+                side: { type: string, enum: [red, blue] }
+      responses:
+        "200":
+          description: Apuesta encolada/drenada con el color elegido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+                  round: { type: object, properties: { seq: { type: integer }, state: { type: string } } }
+        "400": { description: Datos inválidos }
+        "403": { description: Sin permiso }
+        "404": { description: Sala o apuesta no encontrada }
+        "409": { description: Ya tiene color o la ronda está cerrada }
+  /rooms/{code}/bets/{betId}/annul:
+    post:
+      operationId: annulBet
+      summary: Anular una apuesta con motivo, solo antes del cierre (R23)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: betId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: Apuesta anulada; si estaba en bolsa se descuenta y puede pausar la ronda
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+                  round: { type: object, properties: { seq: { type: integer }, state: { type: string } } }
+        "400": { description: Motivo requerido }
+        "403": { description: Sin permiso }
+        "404": { description: Sala o apuesta no encontrada }
+        "409": { description: Ronda cerrada o apuesta ya anulada/devuelta }
+  /rooms/{code}/bets/{betId}/refund:
+    post:
+      operationId: refundBet
+      summary: Devolver una apuesta en espera con nº de devolución (R24)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: betId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refundOperationNumber]
+              properties:
+                refundOperationNumber: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: Apuesta marcada DEVUELTA
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bet: { $ref: "#/components/schemas/CashierBet" }
+                  round: { type: object, properties: { seq: { type: integer }, state: { type: string } } }
+        "400": { description: Nº de devolución requerido }
+        "403": { description: Sin permiso }
+        "404": { description: Sala o apuesta no encontrada }
+        "409": { description: No está en espera o la ronda está cerrada }
+  /rooms/{code}/bets/parse-message:
+    post:
+      operationId: parseBetMessage
+      summary: Autocompletar campos desde el mensaje de WhatsApp (R19, heurística)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, maxLength: 2000 }
+      responses:
+        "200":
+          description: Campos detectados (puede faltar alguno)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  parsed:
+                    type: object
+                    properties:
+                      side: { type: string, enum: [red, blue] }
+                      amountCentimos: { type: integer }
+                      playerName: { type: string }
+                      phone: { type: string }
+        "403": { description: Sin permiso }
+  /admin/rooms:
+    get:
+      operationId: listRooms
+      summary: Todas las salas (solo admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Lista de salas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rooms]
+                properties:
+                  rooms:
+                    type: array
+                    items: { $ref: "#/components/schemas/Room" }
+        "401": { description: Sin token }
+        "403": { description: No es admin }
+    post:
+      operationId: createRoom
+      summary: Crear sala (solo admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                whatsappNumber: { type: string, nullable: true }
+                minBetCentimos: { type: integer, minimum: 0 }
+                maxBetCentimos: { type: integer, minimum: 0 }
+                cashierId: { type: string, format: uuid, nullable: true }
+                slots:
+                  type: array
+                  items: { $ref: "#/components/schemas/RoomSlotInput" }
+      responses:
+        "201":
+          description: Sala creada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "400": { description: Datos inválidos }
+        "409": { description: El cajero ya atiende otra sala }
+  /admin/rooms/{id}:
+    get:
+      operationId: getRoom
+      summary: Detalle de sala con casillas (solo admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Sala
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "404": { description: Sala no encontrada }
+    patch:
+      operationId: updateRoom
+      summary: Editar sala (solo admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                whatsappNumber: { type: string, nullable: true }
+                minBetCentimos: { type: integer, minimum: 0 }
+                maxBetCentimos: { type: integer, minimum: 0 }
+                cashierId: { type: string, format: uuid, nullable: true }
+                active: { type: boolean }
+      responses:
+        "200":
+          description: Sala actualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room]
+                properties:
+                  room: { $ref: "#/components/schemas/Room" }
+        "400": { description: Datos inválidos }
+        "409": { description: El cajero ya atiende otra sala }
+  /admin/rooms/{id}/slots:
+    put:
+      operationId: replaceSlots
+      summary: Reemplazar las casillas de la sala en bloque (solo admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slots]
+              properties:
+                slots:
+                  type: array
+                  minItems: 2
+                  items: { $ref: "#/components/schemas/RoomSlotInput" }
+      responses:
+        "200":
+          description: Casillas reemplazadas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [slots]
+                properties:
+                  slots:
+                    type: array
+                    items: { $ref: "#/components/schemas/RoomSlot" }
+        "400": { description: Casillas inválidas }
 components:
   securitySchemes:
     bearerAuth:
@@ -210,3 +975,242 @@ components:
         token: { type: string }
         user:
           $ref: "#/components/schemas/User"
+    RoomSlotInput:
+      type: object
+      required: [side, multiplier, weight]
+      properties:
+        side:
+          type: string
+          enum: [red, blue]
+        multiplier:
+          type: integer
+          minimum: 101
+          maximum: 199
+          description: Multiplicador ×100 (150 = 1.5)
+        weight:
+          type: integer
+          minimum: 1
+          maximum: 99
+    RoomSlot:
+      allOf:
+        - $ref: "#/components/schemas/RoomSlotInput"
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+    Room:
+      type: object
+      required: [id, code, name, minBetCentimos, maxBetCentimos, active]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        whatsappNumber: { type: string, nullable: true }
+        minBetCentimos: { type: integer }
+        maxBetCentimos: { type: integer }
+        active: { type: boolean }
+        cashier:
+          oneOf:
+            - $ref: "#/components/schemas/User"
+            - type: "null"
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/RoomSlot" }
+    RoundView:
+      type: object
+      required: [seq, state, pools, queued, seedHash]
+      properties:
+        seq: { type: integer }
+        state:
+          type: string
+          enum: [ESPERANDO, CUENTA_REGRESIVA, PAUSADA, CERRADA, GIRANDO, LIQUIDADA]
+        pools:
+          type: object
+          properties:
+            red: { type: integer }
+            blue: { type: integer }
+        queued:
+          type: object
+          properties:
+            red: { type: integer }
+            blue: { type: integer }
+        missing:
+          type: object
+          description: Cuánto falta del otro color para que entre el frente de la cola
+          properties:
+            red:
+              oneOf:
+                - type: object
+                  properties:
+                    min: { type: integer, nullable: true }
+                    max: { type: integer, nullable: true }
+                - type: "null"
+            blue:
+              oneOf:
+                - type: object
+                  properties:
+                    min: { type: integer, nullable: true }
+                    max: { type: integer, nullable: true }
+                - type: "null"
+        blocked:
+          type: object
+          description: R13 — true si el color tiene cola esperando entrar
+          properties:
+            red: { type: boolean }
+            blue: { type: boolean }
+        countdownEndsAt: { type: string, format: date-time, nullable: true }
+        maxEndsAt: { type: string, format: date-time, nullable: true }
+        girandoEndsAt: { type: string, format: date-time, nullable: true }
+        seedHash: { type: string, description: SHA-256 de la semilla, publicado antes del sorteo }
+        resultSlotId: { type: string, format: uuid, nullable: true }
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/RoomSlot"
+            - type: "null"
+          description: Casilla ganadora una vez guardado el resultado (GIRANDO o posterior)
+    RoundSummary:
+      type: object
+      required: [seq, state, seedHash]
+      properties:
+        seq: { type: integer }
+        state:
+          type: string
+          enum: [ESPERANDO, CUENTA_REGRESIVA, PAUSADA, CERRADA, GIRANDO, LIQUIDADA]
+        seedHash: { type: string }
+        seed:
+          type: string
+          nullable: true
+          description: Semilla revelada; solo presente cuando state = LIQUIDADA
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/RoomSlot"
+            - type: "null"
+        createdAt: { type: string, format: date-time }
+    CashierBet:
+      type: object
+      required: [id, seq, amountCentimos, status]
+      properties:
+        id: { type: string, format: uuid }
+        seq: { type: integer }
+        side:
+          oneOf:
+            - type: string
+              enum: [red, blue]
+            - type: "null"
+          description: null = bandeja "Sin color" (R22)
+        amountCentimos: { type: integer }
+        status:
+          type: string
+          enum: [QUEUED, POOL, ANULADA, DEVUELTA]
+        playerName: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        method:
+          oneOf:
+            - type: string
+              enum: [yape, plin]
+            - type: "null"
+        operationNumber: { type: string, nullable: true }
+        paymentVerified: { type: boolean }
+        annulReason: { type: string, nullable: true }
+        refundOperationNumber: { type: string, nullable: true }
+        payoutCentimos: { type: integer, nullable: true }
+        paidOperationNumber: { type: string, nullable: true }
+        paidAt: { type: string, format: date-time, nullable: true }
+    PublicBet:
+      type: object
+      required: [id, status, amountCentimos]
+      properties:
+        id: { type: string, format: uuid }
+        displayName:
+          type: string
+          nullable: true
+          description: 'R27: primer nombre + inicial del último apellido ("Rosa Q.")'
+        maskedPhone:
+          type: string
+          nullable: true
+          description: 'R27: "*** *** NNN" (últimos 3 dígitos)'
+        side:
+          oneOf:
+            - type: string
+              enum: [red, blue]
+            - type: "null"
+        status:
+          type: string
+          enum: [QUEUED, POOL]
+        amountCentimos: { type: integer }
+        createdAt: { type: string, format: date-time }
+        winRangeCentimos:
+          oneOf:
+            - type: object
+              description: 'R27: "gana entre S/ min y S/ max"'
+              properties:
+                min: { type: integer }
+                max: { type: integer }
+            - type: "null"
+    RoomStats:
+      type: object
+      required: [rounds, perColor, slots]
+      properties:
+        rounds:
+          type: integer
+          description: Rondas LIQUIDADA totales de la sala
+        perColor:
+          type: object
+          properties:
+            red: { type: integer }
+            blue: { type: integer }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/SlotStats" }
+    SlotStats:
+      type: object
+      required: [id, side, multiplier, weight, realCount, expectedCount, expectedPct, realPct]
+      properties:
+        id: { type: string, format: uuid }
+        side: { type: string, enum: [red, blue] }
+        multiplier: { type: integer, description: Centésimas (170 = ×1.70) }
+        weight: { type: integer, description: Peso (probabilidad) en % }
+        realCount: { type: integer }
+        expectedCount: { type: number }
+        expectedPct: { type: number, description: Igual a weight }
+        realPct:
+          type: number
+          nullable: true
+          description: null cuando no hay rondas liquidadas
+    Winner:
+      type: object
+      required: [betId, payoutCentimos, status]
+      properties:
+        betId: { type: string, format: uuid }
+        playerName: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        payoutCentimos: { type: integer }
+        method:
+          oneOf:
+            - type: string
+              enum: [yape, plin]
+            - type: "null"
+        status:
+          type: string
+          enum: [PENDIENTE, PAGADA]
+        paidOperationNumber: { type: string, nullable: true }
+    RoundAccounting:
+      type: object
+      required: [seq, collectedCentimos, paidCentimos, keptCentimos]
+      properties:
+        seq: { type: integer }
+        collectedCentimos: { type: integer, description: Total apostado en la bolsa }
+        paidCentimos: { type: integer, description: Premios pagados a ganadores }
+        keptCentimos: { type: integer, description: Lo que se queda la casa }
+        carriedCentimos: { type: integer, description: QUEUED arrastrada a la ronda siguiente }
+        byColor:
+          type: object
+          properties:
+            red: { $ref: "#/components/schemas/ColorAccounting" }
+            blue: { $ref: "#/components/schemas/ColorAccounting" }
+    ColorAccounting:
+      type: object
+      properties:
+        collectedCentimos: { type: integer }
+        paidCentimos: { type: integer }
+        keptCentimos: { type: integer }

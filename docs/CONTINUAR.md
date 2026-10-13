@@ -1,0 +1,204 @@
+# CONTINUAR — contexto para retomar sin historial
+
+## Qué es esto
+
+Ruleta Rápida: web de apuestas rojo/azul con bolsa segura (demo, dinero
+ficticio). Fuente de verdad: `docs/planificacion.md` (R1–R31, no negociables).
+Metodología: una spec por PR, escrita antes del código; dominio puro en
+`api/src/domain/` probado con fast-check.
+
+## Dónde está el código
+
+- Monorepo `brayanAndy1996/apuesta`: `api/` (Express 5 + Sequelize + Postgres 17
+  + Socket.IO + Zod) y `web/` (Next.js App Router + Tailwind + TanStack Query).
+- Contrato HTTP: `docs/api/openapi.yaml`. Specs: `docs/specs/NNN-*.md`.
+- Decisiones: `docs/decisions/NNN-*.md` (ADR-001 slots por defecto,
+  ADR-002 admisión R11 literal + reintento de igualación).
+
+## Estado (al terminar spec 013)
+
+- `bets.is_simulated` (migración 20261011010000). `simulateBets` en
+  roundService: nombres `Demo <nombre>`, teléfonos ficticios, nº `SIM-<ts>-i-r`
+  (jamás colisiona con uno real), `payment_verified=true`, montos en soles
+  redondos dentro de los topes; cada una entra por `placeBet` real (misma
+  cola/bolsa/liquidación) y puede arrancar el countdown.
+- `POST /rooms/:code/simulate {count 1-20, side?}` — cajero asignado o admin.
+- `isSimulated` expuesto en `publicBet` (bandeja cajero) y `publicBetsView`
+  (público); NO es settable vía `POST /bets` — el `betSchema` de zod lo
+  descarta, así que solo `/simulate` puede marcar la flag.
+- Web: botón "Simular apuestas" (5) en el formulario del cajero; badge
+  "demo" violeta en la lista pública de `/sala/[code]`.
+- adversarial-tester (pasada documentada): sin críticos/altos.
+  - La flag no es falsificable desde `/bets` (zod strip).
+  - Colisión de `SIM-` op numbers: `Date.now()+idx+rand` + retry de placeBet
+    ante unique-violation — despreciable.
+  - `action` de /cajero ahora acepta cualquier 2xx (simulate devuelve 201).
+
+## Estado (al terminar spec 012)
+
+- `bets` gana `annulled_by_id` / `refunded_by_id` / `paid_by_id` (migración
+  20261011000000); `annulBet`/`refundBet`/`payBet` reciben `actorId` desde
+  `req.user.id`.
+- `api/src/services/reportService.js`: `limaDayRange("YYYY-MM-DD")` →
+  [00:00, +24h) en America/Lima (fijo -05:00); `dailyReport` agrega por
+  `originRoundId` en rondas creadas ese día (collected = pooled + carried +
+  anulled + refunded, igual que R26); `auditView` lista eventos
+  ANULADA/DEVUELTA/PAGADA con actor y hora, desc, top 200.
+- `GET /admin/reports/daily?code&date` y `GET /admin/audit?code&date`
+  (adminRouter ya es requireAuth+requireRole ADMIN para todo).
+- `web/app/admin/reportes/page.tsx`: selector sala+fecha, tarjetas de
+  movimiento/premios y tabla de auditoría. Enlace en `/admin`.
+- adversarial-tester (pasada documentada): sin críticos/altos.
+  - ANULADA/DEVUELTA reportan `at` desde `updatedAt` (estados terminales: no
+    vuelven a tocarse); anulaciones previas a esta migración salen sin actor
+    ("—") — degradado honesto.
+  - `paidAt` es el instante real; reportes y auditoría coinciden porque ambos
+    usan el mismo conjunto de apuestas del día.
+
+## Estado (al terminar spec 011)
+
+- `GET /rooms/:code/stats` (público): `statsView` en roundService — `rounds`
+  (LIQUIDADA totales), `perColor` y por casilla `realCount/realPct` vs
+  `expectedCount/expectedPct` (R28).
+- `web/lib/verify.ts`: reproduce el sorteo en el navegador — `sha256Hex` con
+  Web Crypto + `drawSlot`/`drawPos` (mismo orden canónico que
+  `api/src/domain/draw.js`).
+- `web/app/sala/[code]/reglas/page.tsx` (pública): "¿Cómo funciona?" en 4
+  pasos, calculadora (monto+color → rango de ganancia), tabla de casillas con
+  %, historial + stats real vs esperada, verificador de rondas liquidadas y
+  FAQ. Enlazada desde el header de `/sala/[code]` ("Reglas y verificador").
+- Metodología SDD+TDD completa: spec → tests ACs en rojo → implementación →
+  adversarial → PR.
+
+### Pasada adversarial spec 011
+
+- **Casillas reemplazadas dejan `result_slot_id` colgado** (sin FK): si el
+  admin reemplaza las casillas, las rondas históricas cuyo slot ya no existe
+  siguen contando en `rounds` pero no en `perColor` (perColor puede sumar
+  menos que rounds). Decisión: degradado visible y honesto — no se inventa
+  un lado; documentado en openapi.yaml. Bajo, sin cambio de schema.
+- `realPct` con denominador = todas las LIQUIDADA (no solo resolubles): mismo
+  caso borde anterior; consistente con la doc.
+- Verificador del navegador: `crypto.subtle` solo existe en contexto seguro
+  (https/localhost) — aceptable para el demo. `BigInt("0x"+seed)` puede lanzar
+  con seed malformada, pero la API solo revela seeds válidas de LIQUIDADA.
+- Sin hallazgos críticos/altos abiertos.
+
+## Estado (al terminar spec 010)
+
+- `buildBetMessage` en `api/src/lib/betMessage.js` junto a `parseBetMessage`
+  (el formato R18 tiene una sola fuente): `APUESTA · Sala CODE · ROJO ·
+  S/ 10.00 · Nombre · 9xx`. `safe()` quita "·" de los campos. Sin color →
+  omite el segmento.
+- `GET /rooms/:code/bet-message` (público): valida con Zod y devuelve
+  `{message, whatsappUrl}` (wa.me/<whatsapp de la sala>?text=codificado).
+  Usa `room.code` (no el nombre) en "Sala CODE".
+- Web `/sala/[code]`: `BetForm` — nombre, teléfono, color, monto S/ validado
+  contra topes, tabs Yape/Plin con QR (`QrImage`: URL → <img>, payload →
+  `QRCode.create` síncrono → SVG por React), "Enviar por WhatsApp" abre
+  whatsappUrl. Botón flotante "Consultas WhatsApp" (R29).
+- adversarial-tester: corregido bajo (playerName con "·" rompía el formato).
+  Nota: el cajero siempre revisa el autocompletado (R19), por eso la
+  sanitización es suficiente.
+
+## Estado (al terminar spec 009)
+
+- Público nuevo: `GET /rooms/:code/public-bets` (sin auth) — lista enmascarada
+  R27: `displayName` ("Rosa Q.", último token como apellido), `maskedPhone`
+  ("*** *** NNN"), `winRangeCentimos {min,max}` = monto × mín/máx
+  multiplicador del color. Excluye ANULADA/DEVUELTA; "sin color" va con
+  side/winRange null.
+- `currentRoundView` añade `blocked:{red,blue}` = hay cola esperando (R13);
+  `missing` ya daba cuánto falta del otro color.
+- `lib/mask.js` puro (publicName, maskPhone, winRangeCentimos).
+- Web: `/sala/[code]` público — bolsas por color, "en espera", "Falta S/…del
+  otro color", countdown, ruleta animada en GIRANDO que aterriza en `result`,
+  lista de apuestas. `lib/socket.ts` (socket.io-client) + `join:room` +
+  `round:update` → invalida queries. Home enlaza a `/sala/GENERAL`.
+- adversarial-tester: el test AC-03 verifica sobre el JSON crudo que no se
+  exponen operationNumber, paymentVerified, cashierId, teléfono ni apellido
+  completo. Sin hallazgos.
+- Gotcha: la respuesta de POST /bets es `{bets:[...]}` (por el split R21), no
+  `{bet}`. Y en nombres peruanos el apellido está en el último token.
+
+## Estado (al terminar spec 008 — con metodología SDD+TDD completa)
+
+- Liquidación: `domain/settlement.js` — `settle(round, slots, poolBets)`
+  asigna premios por apuesta en bolsa: ganadores de su color cobran
+  `floor(amount × multiplier/100)` (R2, redondeo a favor de la casa),
+  perdedores y QUEUED (arrastrada) cobran 0. Invariante R26 probada con
+  fast-check: `collected = paid + kept` y la casa nunca queda negativa.
+- Ciclo: en `GIRANDO→LIQUIDADA` se guarda `payoutCentimos` por apuesta y
+  `paidOperationNumber=null`. Rescue: si `resultSlotId` faltara se deriva de
+  la semilla (idempotente).
+- Endpoints cajero/admin: `GET /rooms/:code/winners?seq=` (última LIQUIDADA,
+  lista PENDIENTE/PAGADA), `POST /rooms/:code/bets/:id/pay` (nº operación,
+  409 si ya pagada, FOR UPDATE), `GET /rooms/:code/rounds/:seq/accounting`
+  (collected/paid/kept por color).
+- UI `/cajero`: sección "Ganadores por pagar — ronda N" con botón
+  "Marcar pagada" (prompt del nº de operación).
+- adversarial-tester (pasada documentada aquí): sin hallazgos críticos/altos.
+  Corregidos 2 bajos: `seq` NaN → 400 en `/winners` y `/rounds/:seq/accounting`.
+  Verificado: doble pago concurrente (lock), pago pre-liquidación (409),
+  QUEUED/ANULADA no cobran, premio solo del color ganador, roomId ajeno → 404.
+- Gotcha: `FOR UPDATE` con include (outer join) falla en Postgres → bloquear
+  la fila sin include y traer la asociación aparte.
+
+## Estado (al terminar spec 007)
+
+- `bets` extendida: player_name, phone, method (yape|plin), operation_number
+  (único por método, índice parcial), payment_verified, cashier_id,
+  annul_reason, refund_operation_number; `side` nullable = bandeja "Sin color"
+  (fuera de la cola del dominio); status += ANULADA, DEVUELTA.
+- `roundService`: placeBet acepta el payload completo y parte el excedente
+  sobre `maxBetCentimos` en otra QUEUED del mismo color (R21). `assignBetSide`,
+  `annulBet` (descuenta del pool y puede pausar, solo ronda abierta),
+  `refundBet` (solo QUEUED), `roundBetsView` para la bandeja.
+- `parseBetMessage` (`lib/betMessage.js`) autocompleta desde el mensaje R18.
+- `/auth/me` devuelve `room` al cajero. UI `/cajero`: formulario con pegado,
+  bandeja sin color, acciones anular/devolver.
+- Gotcha: los ENUM de Postgres no crecen con changeColumn → usar
+  `ALTER TYPE ... ADD VALUE IF NOT EXISTS`.
+
+## Estado (al terminar spec 006)
+
+- Sorteo: `api/src/domain/draw.js` — `pos = BigInt("0x"+seed) % 100` sobre el
+  orden canónico de casillas (red por multiplier asc, luego blue por asc).
+  `closeAndSpin` guarda `result_slot_id` en la misma transacción del cierre
+  (R9) y nunca resortea (idempotente).
+- `GET /rooms/:code/round` devuelve `result` (casilla) desde GIRANDO; el
+  historial público `GET /rooms/:code/rounds?limit=N` expone `seed` solo en
+  rondas `LIQUIDADA` (verificable: `sha256(seed) === seedHash`).
+
+## Estado (al terminar spec 005)
+
+- Tablas: `users`, `rooms`, `room_slots`, `rounds`, `bets`.
+- `api/src/services/roundService.js`: `placeBet` (transacción FOR UPDATE,
+  crea/usa la ronda abierta), `processExpiredRounds(now)` (ticker 500 ms en
+  `index.js`; testeable con `now` falso), `currentRoundView`.
+- Máquina de estados con **deadlines persistidos**: `countdown_ends_at`
+  (60 s, se reinicia por admisión), `max_ends_at` (5 min → equalize →
+  `max_expired` + reintento si no gira), `girando_ends_at` (7 s).
+- Socket.IO: cliente emite `join:room <CODE>`; servidor emite `round:update`
+  en `room:<CODE>` tras cada transición.
+- Endpoints: `GET /rooms/:code/round` (público) y `POST /rooms/:code/bets`
+  (cajero asignado o admin — **provisional**, la 007 lo reemplaza).
+- Al liquidar, las apuestas `QUEUED` se arrastran a la ronda siguiente
+  conservando `seq` global por sala.
+
+## Lo que sigue (spec 006)
+
+- Sorteo verificable: al cerrar, elegir slot con la semilla (ya persistida con
+  su hash publicado), guardar `result_slot_id`, y liquidar apuestas POOL con
+  `payout = floor(amount × mult / 100)` (R2).
+- Revelar `seed` al liquidar (el campo ya existe y queda legible).
+
+## Gotchas
+
+- Node 24 via nvm: `export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"`.
+- BD: `./scripts/db-up.sh` (Docker `apuesta-pg`); tests usan `apuesta_test`
+  (`NODE_ENV=test`); migrar ambas BDs tras nuevas migraciones.
+- Tests serializados: `node --test --test-concurrency=1` (comparten la BD).
+- Los pesos por defecto se normalizaron a 5/10/20/10/5 por color (ADR-001):
+  la tabla R7 del documento suma 90 %.
+- Dinero siempre en céntimos enteros; multiplicadores en centésimas (170=1.70).

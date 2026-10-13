@@ -3,7 +3,9 @@ import express from "express";
 
 import { sequelize } from "./db.js";
 import { adminRouter } from "./routes/admin.js";
+import { adminRoomsRouter } from "./routes/adminRooms.js";
 import { authRouter } from "./routes/auth.js";
+import { roomsRouter } from "./routes/rooms.js";
 
 export function createApp() {
   const app = express();
@@ -26,6 +28,8 @@ export function createApp() {
 
   app.use("/auth", authRouter);
   app.use("/admin", adminRouter);
+  app.use("/admin/rooms", adminRoomsRouter);
+  app.use("/rooms", roomsRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "no encontrado" }));
 

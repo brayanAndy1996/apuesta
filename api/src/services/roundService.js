@@ -1,0 +1,802 @@
+import { Op, QueryTypes } from "sequelize";
+
+import { sequelize } from "../db.js";
+import { drawSlot } from "../domain/draw.js";
+import { createPool, drain, equalize, isSecure, maxMultiplier, missingFor } from "../domain/pool.js";
+import { maskPhone, publicName, winRangeCentimos } from "../lib/mask.js";
+import { settle } from "../domain/settlement.js";
+import { newSeed, seedHash } from "../lib/seed.js";
+import { Room } from "../models/room.js";
+import {
+  BET_STATUS,
+  Bet,
+  COUNTDOWN_MS,
+  MAX_ROUND_MS,
+  OPEN_STATES,
+  ROUND_STATES,
+  Round,
+  SPIN_MS,
+} from "../models/round.js";
+
+const { ESPERANDO, CUENTA_REGRESIVA, PAUSADA, CERRADA, GIRANDO, LIQUIDADA } =
+  ROUND_STATES;
+
+let io = null;
+export const setIo = (server) => {
+  io = server;
+};
+
+const emit = (roomCode, round, extra = {}) => {
+  io?.to(`room:${roomCode}`).emit("round:update", {
+    seq: round.seq,
+    state: round.state,
+    pools: { red: round.poolRedCentimos, blue: round.poolBlueCentimos },
+    countdownEndsAt: round.countdownEndsAt,
+    maxEndsAt: round.maxEndsAt,
+    girandoEndsAt: round.girandoEndsAt,
+    seedHash: round.seedHash,
+    resultSlotId: round.resultSlotId,
+    ...extra,
+  });
+};
+
+// Reconstruye el estado puro de la bolsa desde las filas persistidas.
+// Las apuestas "Sin color" (side NULL) quedan fuera de la cola (R22).
+async function loadPoolState(room, round, transaction) {
+  const slots = await room.getSlots({ transaction });
+  const state = createPool({ multMax: maxMultiplier(slots) });
+  state.pools.red = round.poolRedCentimos;
+  state.pools.blue = round.poolBlueCentimos;
+  const queued = await Bet.findAll({
+    where: {
+      roundId: round.id,
+      status: BET_STATUS.QUEUED,
+      side: { [Op.ne]: null },
+    },
+    order: [["seq", "ASC"]],
+    transaction,
+  });
+  for (const b of queued) {
+    state.queues[b.side].push({ id: b.id, seq: b.seq, side: b.side, amount: b.amountCentimos });
+    state.seq = Math.max(state.seq, b.seq);
+  }
+  return state;
+}
+
+// Persiste el resultado del dominio: apuestas QUEUED→POOL, splits y bolsas.
+async function persistState(round, queuedBefore, state, transaction) {
+  const stillQueued = new Set();
+  for (const side of ["red", "blue"]) {
+    for (const b of state.queues[side]) stillQueued.add(b.id);
+  }
+  const entered = queuedBefore.filter((b) => !stillQueued.has(b.id));
+  for (const bet of entered) {
+    await Bet.update(
+      { status: BET_STATUS.POOL },
+      { where: { id: bet.id }, transaction },
+    );
+  }
+  // apuestas partidas por equalize: el frente quedó con monto reducido
+  for (const side of ["red", "blue"]) {
+    for (const b of state.queues[side]) {
+      const before = queuedBefore.find((q) => q.id === b.id);
+      if (before && before.amount !== b.amount) {
+        await Bet.update(
+          { amountCentimos: b.amount },
+          { where: { id: b.id }, transaction },
+        );
+        await Bet.create(
+          {
+            roundId: round.id,
+            seq: b.seq,
+            side: b.side,
+            amountCentimos: before.amount - b.amount,
+            status: BET_STATUS.POOL,
+            parentBetId: b.id,
+          },
+          { transaction },
+        );
+      }
+    }
+  }
+  round.poolRedCentimos = state.pools.red;
+  round.poolBlueCentimos = state.pools.blue;
+}
+
+const queuedBetsOf = (state) => [...state.queues.red, ...state.queues.blue];
+
+const secureNow = (state) =>
+  isSecure(state.pools.red, state.pools.blue, state.multMax, state.minTotal);
+
+// R15: ajusta estado/temporizadores tras admitir apuestas a la bolsa.
+function refreshTimers(round, state, admittedCount, now) {
+  if (admittedCount === 0) return;
+  if (round.maxEndsAt === null) {
+    round.maxEndsAt = new Date(now.getTime() + MAX_ROUND_MS);
+  }
+  if (secureNow(state)) {
+    const remaining =
+      round.state === PAUSADA && round.countdownRemainingMs !== null
+        ? round.countdownRemainingMs
+        : COUNTDOWN_MS;
+    round.countdownEndsAt = new Date(now.getTime() + remaining);
+    round.countdownRemainingMs = null;
+    round.state = CUENTA_REGRESIVA;
+  } else if (round.state === CUENTA_REGRESIVA) {
+    round.countdownRemainingMs = Math.max(
+      0,
+      round.countdownEndsAt.getTime() - now.getTime(),
+    );
+    round.countdownEndsAt = null;
+    round.state = PAUSADA;
+  } else if (round.state === ESPERANDO) {
+    // La primera admisión dejó la bolsa insegura: no hay cuenta que guardar.
+    round.state = PAUSADA;
+  }
+}
+
+const findOpenRound = (room, transaction) =>
+  Round.findOne({
+    where: { roomId: room.id, state: [...OPEN_STATES] },
+    order: [["seq", "DESC"]],
+    lock: transaction.LOCK.UPDATE,
+    transaction,
+  });
+
+async function lockOpenRound(room, transaction) {
+  const round = await findOpenRound(room, transaction);
+  if (round) return round;
+  const last = await Round.max("seq", {
+    where: { roomId: room.id },
+    transaction,
+  });
+  const seed = newSeed();
+  return Round.create(
+    {
+      roomId: room.id,
+      seq: (last ?? 0) + 1,
+      state: ESPERANDO,
+      seed,
+      seedHash: seedHash(seed),
+    },
+    { transaction },
+  );
+}
+
+const nextGlobalSeq = async (roomId, transaction) => {
+  const [seqRow] = await sequelize.query(
+    `SELECT MAX(b.seq) AS max_seq FROM bets b
+     JOIN rounds r ON r.id = b.round_id
+     WHERE r.room_id = :roomId`,
+    {
+      replacements: { roomId },
+      type: QueryTypes.SELECT,
+      transaction,
+    },
+  );
+  return (seqRow?.max_seq ?? 0) + 1;
+};
+
+// Drena la bolsa sobre la ronda bloqueada y persiste (admisiones, timers y
+// el reintento de igualación si el máximo ya venció). Devuelve el state.
+async function drainRound(room, round, transaction, now) {
+  const state = await loadPoolState(room, round, transaction);
+  const before = queuedBetsOf(state);
+  drain(state);
+  const admittedCount = before.length - queuedBetsOf(state).length;
+  await persistState(round, before, state, transaction);
+  refreshTimers(round, state, admittedCount, now);
+  if (round.maxExpired && !secureNow(state)) {
+    const snapshot = queuedBetsOf(state).map((b) => ({ ...b }));
+    const { spun } = equalize(state);
+    if (spun) {
+      await persistState(round, snapshot, state, transaction);
+      closeAndSpin(round, await room.getSlots({ transaction }), now);
+    }
+  }
+  return state;
+}
+
+// Registra una o más apuestas del cajero y drena la bolsa.
+// R21: si el pago supera el máximo de la sala, la primera apuesta va por el
+// tope y el excedente queda como otra apuesta QUEUED del mismo color.
+// Reintenta una vez ante el race de creación de ronda abierta: tras un error
+// Postgres aborta la transacción, así que el retry la cubre entera.
+export async function placeBet(room, bet, now = new Date()) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await placeBetOnce(room, bet, now);
+    } catch (err) {
+      if (attempt === 0 && err.name === "SequelizeUniqueConstraintError") continue;
+      throw err;
+    }
+  }
+}
+
+async function placeBetOnce(room, bet, now) {
+  return sequelize.transaction(async (transaction) => {
+    const round = await lockOpenRound(room, transaction);
+    let seq = await nextGlobalSeq(room.id, transaction);
+
+    const { side, amountCentimos, ...meta } = bet;
+    const created = [];
+    const origin = { originRoundId: round.id };
+    if (side === null || side === undefined) {
+      // R22: bandeja "Sin color" — no entra a la cola del dominio.
+      created.push(
+        await Bet.create(
+          {
+            roundId: round.id,
+            seq: seq++,
+            side: null,
+            amountCentimos,
+            status: BET_STATUS.QUEUED,
+            ...meta,
+            ...origin,
+          },
+          { transaction },
+        ),
+      );
+    } else {
+      let remaining = amountCentimos;
+      while (remaining > 0) {
+        const part = Math.min(remaining, room.maxBetCentimos);
+        created.push(
+          await Bet.create(
+            {
+              roundId: round.id,
+              seq: seq++,
+              side,
+              amountCentimos: part,
+              status: BET_STATUS.QUEUED,
+              ...(created.length === 0 ? meta : { cashierId: meta.cashierId }),
+              ...origin,
+            },
+            { transaction },
+          ),
+        );
+        remaining -= part;
+      }
+    }
+
+    const state = await drainRound(room, round, transaction, now);
+    await round.save({ transaction });
+    for (const b of created) {
+      if (b.side !== null) {
+        b.status = queuedBetsOf(state).some((q) => q.id === b.id)
+          ? BET_STATUS.QUEUED
+          : BET_STATUS.POOL;
+      }
+    }
+    return { round, bets: created };
+  }).then((result) => {
+    emit(room.code, result.round);
+    return result;
+  });
+}
+
+// R22: asigna color a una apuesta "sin color" y la drena a la cola.
+export async function assignBetSide(room, betId, side, now = new Date()) {
+  return sequelize.transaction(async (transaction) => {
+    const bet = await Bet.findByPk(betId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!bet) return { error: "apuesta no encontrada", status: 404 };
+    if (bet.side !== null || bet.status !== BET_STATUS.QUEUED) {
+      return { error: "la apuesta ya tiene color", status: 409 };
+    }
+    const round = await Round.findByPk(bet.roundId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!OPEN_STATES.includes(round.state)) {
+      return { error: "la ronda ya está cerrada", status: 409 };
+    }
+    bet.side = side;
+    await bet.save({ transaction });
+    const state = await drainRound(room, round, transaction, now);
+    await round.save({ transaction });
+    bet.status = queuedBetsOf(state).some((q) => q.id === bet.id)
+      ? BET_STATUS.QUEUED
+      : BET_STATUS.POOL;
+    return { round, bet };
+  }).then((result) => {
+    if (result.round) emit(room.code, result.round);
+    return result;
+  });
+}
+
+// R23: anula una apuesta con motivo, solo mientras su ronda está abierta.
+// Si estaba en POOL se descuenta de la bolsa y se reevalúa seguridad:
+// quedar insegura pausa la cuenta conservando lo que quedaba.
+export async function annulBet(room, betId, reason, actorId, now = new Date()) {
+  return sequelize.transaction(async (transaction) => {
+    const bet = await Bet.findByPk(betId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!bet) return { error: "apuesta no encontrada", status: 404 };
+    const round = await Round.findByPk(bet.roundId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!OPEN_STATES.includes(round.state)) {
+      return { error: "la ronda ya está cerrada", status: 409 };
+    }
+    if (bet.status === BET_STATUS.ANULADA || bet.status === BET_STATUS.DEVUELTA) {
+      return { error: "la apuesta ya está anulada o devuelta", status: 409 };
+    }
+    if (bet.status === BET_STATUS.POOL) {
+      if (bet.side === "red") round.poolRedCentimos -= bet.amountCentimos;
+      else round.poolBlueCentimos -= bet.amountCentimos;
+      const state = await loadPoolState(room, round, transaction);
+      if (!secureNow(state) && round.state === CUENTA_REGRESIVA) {
+        round.countdownRemainingMs = Math.max(
+          0,
+          round.countdownEndsAt.getTime() - now.getTime(),
+        );
+        round.countdownEndsAt = null;
+        round.state = PAUSADA;
+      }
+    }
+    bet.status = BET_STATUS.ANULADA;
+    bet.annulReason = reason;
+    bet.annulledById = actorId ?? null;
+    await bet.save({ transaction });
+    await round.save({ transaction });
+    return { round, bet };
+  }).then((result) => {
+    if (result.round) emit(room.code, result.round);
+    return result;
+  });
+}
+
+// R24: devuelve (saldo a favor) una apuesta que sigue en espera.
+export async function refundBet(room, betId, refundOperationNumber, actorId) {
+  return sequelize.transaction(async (transaction) => {
+    const bet = await Bet.findByPk(betId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!bet) return { error: "apuesta no encontrada", status: 404 };
+    if (bet.status !== BET_STATUS.QUEUED) {
+      return { error: "solo se devuelven apuestas en espera", status: 409 };
+    }
+    const round = await Round.findByPk(bet.roundId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!OPEN_STATES.includes(round.state)) {
+      return { error: "la ronda ya está cerrada", status: 409 };
+    }
+    bet.status = BET_STATUS.DEVUELTA;
+    bet.refundOperationNumber = refundOperationNumber;
+    bet.refundedById = actorId ?? null;
+    await bet.save({ transaction });
+    return { round, bet };
+  }).then((result) => {
+    if (result.round) emit(room.code, result.round);
+    return result;
+  });
+}
+
+// Traslada las apuestas QUEUED de `from` al inicio de la cola de `to`.
+async function carryQueue(from, to, transaction) {
+  await Bet.update(
+    { roundId: to.id },
+    {
+      where: {
+        roundId: from.id,
+        status: BET_STATUS.QUEUED,
+        side: { [Op.ne]: null },
+      },
+      transaction,
+    },
+  );
+  // Las "sin color" no tienen cola: también viajan a la ronda siguiente.
+  await Bet.update(
+    { roundId: to.id },
+    {
+      where: { roundId: from.id, status: BET_STATUS.QUEUED, side: null },
+      transaction,
+    },
+  );
+}
+
+// R9: el resultado se guarda ANTES de la animación (CERRADA → GIRANDO) y
+// jamás se resortea: si resultSlotId ya está poblado no se recalcula.
+const closeAndSpin = (round, slots, now) => {
+  if (!round.resultSlotId) {
+    const { slot } = drawSlot(round.seed, slots);
+    round.resultSlotId = slot.id;
+  }
+  round.state = CERRADA;
+  round.countdownEndsAt = null;
+  round.state = GIRANDO;
+  round.girandoEndsAt = new Date(now.getTime() + SPIN_MS);
+};
+
+
+
+// Procesa todas las transiciones vencidas a `now`. Invocable desde tests.
+export async function processExpiredRounds(now = new Date()) {
+  const due = await Round.findAll({
+    where: {
+      [Op.or]: [
+        { state: CUENTA_REGRESIVA, countdownEndsAt: { [Op.lte]: now } },
+        { state: [ESPERANDO, CUENTA_REGRESIVA, PAUSADA], maxEndsAt: { [Op.lte]: now }, maxExpired: false },
+        { state: GIRANDO, girandoEndsAt: { [Op.lte]: now } },
+      ],
+    },
+    include: [{ model: Room, as: "room" }],
+  });
+
+  const processed = [];
+  for (const round of due) {
+    const roomCode = round.room.code;
+    await sequelize.transaction(async (transaction) => {
+      const locked = await Round.findByPk(round.id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction,
+      });
+      if (!locked) return;
+      const room = await Room.findByPk(locked.roomId, { transaction });
+      const state = await loadPoolState(room, locked, transaction);
+
+      if (locked.state === GIRANDO) {
+        // LIQUIDADA: semilla revelada (la 006 la usa para verificar) y
+        // premios calculados sobre la bolsa (R25).
+        const slots = await room.getSlots({ transaction });
+        // En producción resultSlotId ya viene del cierre (R9); por defensa se
+        // deriva aquí si faltara (misma semilla → mismo resultado).
+        if (!locked.resultSlotId) {
+          locked.resultSlotId = drawSlot(locked.seed, slots).slot.id;
+        }
+        const poolBets = await Bet.findAll({
+          where: { roundId: locked.id, status: BET_STATUS.POOL },
+          transaction,
+        });
+        const { payouts } = settle(locked, slots, poolBets);
+        const byId = new Map(payouts.map((p) => [p.betId, p.amount]));
+        for (const b of poolBets) {
+          b.payoutCentimos = byId.get(b.id) ?? 0;
+          await b.save({ transaction });
+        }
+        locked.state = LIQUIDADA;
+        await locked.save({ transaction });
+        const next = await lockOpenRound(room, transaction);
+        await carryQueue(locked, next, transaction);
+        const carried = await loadPoolState(room, next, transaction);
+        const before = queuedBetsOf(carried);
+        drain(carried);
+        await persistState(next, before, carried, transaction);
+        refreshTimers(next, carried, before.length - queuedBetsOf(carried).length, now);
+        await next.save({ transaction });
+        processed.push({ roundId: next.id, action: "opened" });
+        emit(roomCode, next);
+        processed.push({ roundId: locked.id, action: "liquidated" });
+        emit(roomCode, locked);
+        return;
+      }
+
+      const maxDue =
+        locked.maxEndsAt !== null && locked.maxEndsAt <= now && !locked.maxExpired;
+      const countdownDue =
+        locked.state === CUENTA_REGRESIVA &&
+        locked.countdownEndsAt !== null &&
+        locked.countdownEndsAt <= now;
+
+      if (maxDue) {
+        const snapshot = queuedBetsOf(state).map((b) => ({ ...b }));
+        const { spun } = equalize(state);
+        if (spun) {
+          await persistState(locked, snapshot, state, transaction);
+          closeAndSpin(locked, await room.getSlots({ transaction }), now);
+          processed.push({ roundId: locked.id, action: "equalized" });
+        } else {
+          locked.maxExpired = true;
+          processed.push({ roundId: locked.id, action: "max_expired" });
+        }
+      } else if (countdownDue) {
+        closeAndSpin(locked, await room.getSlots({ transaction }), now);
+        processed.push({ roundId: locked.id, action: "closed" });
+      } else {
+        return;
+      }
+      await locked.save({ transaction });
+      emit(roomCode, locked);
+    });
+  }
+  return processed;
+}
+
+const publicSlot = (slot) =>
+  slot ? { id: slot.id, side: slot.side, multiplier: slot.multiplier, weight: slot.weight } : null;
+
+const resultOf = (round, slots) =>
+  publicSlot(slots.find((s) => s.id === round.resultSlotId));
+
+// Vista pública de la ronda actual de una sala.
+export async function currentRoundView(room) {
+  const round = await Round.findOne({
+    where: { roomId: room.id, state: { [Op.ne]: LIQUIDADA } },
+    order: [["seq", "DESC"]],
+  });
+  const open = round ?? (await sequelize.transaction((t) => lockOpenRound(room, t)));
+  const [state, slots] = await Promise.all([
+    loadPoolState(room, open),
+    room.getSlots(),
+  ]);
+  return {
+    seq: open.seq,
+    state: open.state,
+    pools: { red: open.poolRedCentimos, blue: open.poolBlueCentimos },
+    queued: {
+      red: open.state === LIQUIDADA ? 0 : state.queues.red.reduce((a, b) => a + b.amount, 0),
+      blue: open.state === LIQUIDADA ? 0 : state.queues.blue.reduce((a, b) => a + b.amount, 0),
+    },
+    missing: {
+      red: missingFor(state, "red"),
+      blue: missingFor(state, "blue"),
+    },
+    // R13: un color está bloqueado cuando tiene apuestas esperando entrar.
+    blocked: {
+      red: state.queues.red.length > 0,
+      blue: state.queues.blue.length > 0,
+    },
+    countdownEndsAt: open.countdownEndsAt,
+    maxEndsAt: open.maxEndsAt,
+    girandoEndsAt: open.girandoEndsAt,
+    seedHash: open.seedHash,
+    resultSlotId: open.resultSlotId,
+    result: resultOf(open, slots),
+  };
+}
+
+// R28: distribución real de resultados frente a la esperada por pesos.
+export async function statsView(room) {
+  const [rounds, slots] = await Promise.all([
+    Round.findAll({ where: { roomId: room.id, state: LIQUIDADA } }),
+    room.getSlots(),
+  ]);
+  const counts = new Map();
+  const perColor = { red: 0, blue: 0 };
+  for (const r of rounds) {
+    if (!r.resultSlotId) continue;
+    counts.set(r.resultSlotId, (counts.get(r.resultSlotId) ?? 0) + 1);
+    const slot = slots.find((s) => s.id === r.resultSlotId);
+    if (slot) perColor[slot.side] += 1;
+  }
+  const n = rounds.length;
+  return {
+    rounds: n,
+    perColor,
+    slots: slots.map((s) => ({
+      id: s.id,
+      side: s.side,
+      multiplier: s.multiplier,
+      weight: s.weight,
+      realCount: counts.get(s.id) ?? 0,
+      expectedCount: n * (s.weight / 100),
+      expectedPct: s.weight,
+      realPct: n ? ((counts.get(s.id) ?? 0) / n) * 100 : null,
+    })),
+  };
+}
+
+// Vista pública (R27): apuestas de la ronda abierta con datos enmascarados.
+// Incluye la bandeja "sin color" (side=null); excluye ANULADA/DEVUELTA.
+export async function publicBetsView(room) {
+  const round = await Round.findOne({
+    where: { roomId: room.id, state: { [Op.ne]: LIQUIDADA } },
+    order: [["seq", "DESC"]],
+  });
+  if (!round) return { seq: null, bets: [] };
+  const [bets, slots] = await Promise.all([
+    Bet.findAll({
+      where: {
+        roundId: round.id,
+        status: { [Op.in]: [BET_STATUS.QUEUED, BET_STATUS.POOL] },
+      },
+      order: [["seq", "DESC"]],
+    }),
+    room.getSlots(),
+  ]);
+  return {
+    seq: round.seq,
+    bets: bets.map((b) => ({
+      id: b.id,
+      displayName: publicName(b.playerName),
+      maskedPhone: maskPhone(b.phone),
+      side: b.side,
+      status: b.status,
+      amountCentimos: b.amountCentimos,
+      isSimulated: b.isSimulated,
+      createdAt: b.createdAt,
+      winRangeCentimos: winRangeCentimos(b.amountCentimos, slots, b.side),
+    })),
+  };
+}
+
+// Vista del cajero: apuestas de la ronda abierta con datos del jugador.
+export async function roundBetsView(room) {
+  const round = await Round.findOne({
+    where: { roomId: room.id, state: { [Op.ne]: LIQUIDADA } },
+    order: [["seq", "DESC"]],
+  });
+  if (!round) return { seq: null, bets: [] };
+  const bets = await Bet.findAll({
+    where: { roundId: round.id },
+    order: [["seq", "ASC"]],
+  });
+  return {
+    seq: round.seq,
+    state: round.state,
+    open: OPEN_STATES.includes(round.state),
+    bets: bets.map((b) => ({
+      id: b.id,
+      seq: b.seq,
+      side: b.side,
+      amountCentimos: b.amountCentimos,
+      status: b.status,
+      playerName: b.playerName,
+      phone: b.phone,
+      method: b.method,
+      operationNumber: b.operationNumber,
+      paymentVerified: b.paymentVerified,
+      annulReason: b.annulReason,
+      refundOperationNumber: b.refundOperationNumber,
+    })),
+  };
+}
+
+// R25: bandeja "Ganadores por pagar" de una ronda liquidada.
+export async function winnersView(room, seq = null) {
+  const where = { roomId: room.id, state: LIQUIDADA };
+  const round = seq === null
+    ? await Round.findOne({ where, order: [["seq", "DESC"]] })
+    : await Round.findOne({ where: { ...where, seq } });
+  if (!round) return { seq: null, winners: [] };
+  const bets = await Bet.findAll({
+    where: { roundId: round.id, payoutCentimos: { [Op.gt]: 0 } },
+    order: [["seq", "ASC"]],
+  });
+  return {
+    seq: round.seq,
+    winners: bets.map((b) => ({
+      betId: b.id,
+      playerName: b.playerName,
+      phone: b.phone,
+      payoutCentimos: b.payoutCentimos,
+      method: b.method,
+      status: b.paidAt ? "PAGADA" : "PENDIENTE",
+      paidOperationNumber: b.paidOperationNumber,
+      paidAt: b.paidAt,
+    })),
+  };
+}
+
+// R25: marca el premio como pagado con el nº de operación del envío.
+export async function payBet(room, betId, operationNumber, actorId) {
+  return sequelize.transaction(async (transaction) => {
+    const bet = await Bet.findByPk(betId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+    });
+    if (!bet) {
+      return { error: "apuesta no encontrada", status: 404 };
+    }
+    bet.round = await Round.findByPk(bet.roundId, { transaction });
+    if (bet.round.roomId !== room.id) {
+      return { error: "apuesta no encontrada", status: 404 };
+    }
+    if (bet.payoutCentimos === null || bet.payoutCentimos === 0) {
+      return { error: "la apuesta no tiene premio", status: 409 };
+    }
+    if (bet.paidAt !== null) {
+      return { error: "el premio ya fue pagado", status: 409 };
+    }
+    bet.paidOperationNumber = operationNumber;
+    bet.paidAt = new Date();
+    bet.paidById = actorId ?? null;
+    await bet.save({ transaction });
+    return { round: bet.round, bet };
+  }).then((result) => {
+    if (result.round) emit(room.code, result.round);
+    return result;
+  });
+}
+
+// R26: desglose contable de una ronda. Lo recibido queda trazado en tres
+// destinos: bolsa (pooled), espera arrastrada (carried) y devuelto (refunded).
+// Anuladas se reportan aparte: si estaban en bolsa, la casa las conserva
+// hasta procesarlas (saldo a favor) — la devolución real es aparte.
+export async function roundAccounting(room, seq) {
+  const round = await Round.findOne({ where: { roomId: room.id, seq } });
+  if (!round) return null;
+  const bets = await Bet.findAll({ where: { roundId: round.id } });
+  const sum = (list) => list.reduce((a, b) => a + b.amountCentimos, 0);
+  const pooled = sum(bets.filter((b) => b.status === "POOL"));
+  // Las partidas por equalize (POOL con parent) ya cuentan por su monto final.
+  const carriedRows = await Bet.findAll({
+    where: { originRoundId: round.id, status: BET_STATUS.QUEUED },
+  });
+  const carried = sum(carriedRows);
+  const refunded = sum(bets.filter((b) => b.status === "DEVUELTA"));
+  const anulled = sum(bets.filter((b) => b.status === "ANULADA"));
+  const paidOut = bets
+    .filter((b) => b.status === "POOL" && b.payoutCentimos > 0)
+    .reduce((a, b) => a + b.payoutCentimos, 0);
+  return {
+    seq: round.seq,
+    state: round.state,
+    // Toda la plata registrada en la ronda: bolsa + espera + devuelto +
+    // anulado (conservado por la casa como saldo a favor pendiente).
+    received: pooled + carried + refunded + anulled,
+    pooled,
+    carried,
+    refunded,
+    anulled,
+    paidOut,
+    kept: pooled - paidOut,
+  };
+}
+
+// Historial público: la semilla solo se expone una vez LIQUIDADA (R8).
+export async function recentRoundsView(room, limit = 20) {
+  const [rounds, slots] = await Promise.all([
+    Round.findAll({
+      where: { roomId: room.id },
+      order: [["seq", "DESC"]],
+      limit,
+    }),
+    room.getSlots(),
+  ]);
+  return rounds.map((r) => ({
+    seq: r.seq,
+    state: r.state,
+    seedHash: r.seedHash,
+    seed: r.state === LIQUIDADA ? r.seed : null,
+    result: resultOf(r, slots),
+    createdAt: r.createdAt,
+  }));
+}
+
+// R31: simulador de demo — genera apuestas ficticias que pasan por el mismo
+// placeBet que las reales (misma cola, misma bolsa, misma liquidación).
+const SIM_NAMES = [
+  "Demo Ana", "Demo Bruno", "Demo Carla", "Demo Diego", "Demo Elena",
+  "Demo Félix", "Demo Gabi", "Demo Hugo", "Demo Inés", "Demo Jorge",
+  "Demo Katia", "Demo Luis", "Demo Mara", "Demo Nico", "Demo Olga",
+];
+const SIDES = ["red", "blue"];
+
+const rand = (n) => Math.floor(Math.random() * n);
+const pick = (list, i) => list[i % list.length];
+
+export async function simulateBets(room, { count, side = null, cashierId = null }) {
+  const created = [];
+  let lastRound = null;
+  for (let i = 0; i < count; i += 1) {
+    // Monto redondo en soles dentro de los topes de la sala.
+    const minS = Math.max(1, Math.ceil(room.minBetCentimos / 100));
+    const maxS = Math.max(minS, Math.floor(room.maxBetCentimos / 100));
+    const amountCentimos = (minS + rand(maxS - minS + 1)) * 100;
+    const chosen = side ?? SIDES[i % SIDES.length];
+    const result = await placeBet(room, {
+      side: chosen,
+      amountCentimos,
+      playerName: pick(SIM_NAMES, rand(SIM_NAMES.length) + i),
+      phone: `9${String(10000000 + rand(89999999))}`,
+      method: rand(2) === 0 ? "yape" : "plin",
+      operationNumber: `SIM-${Date.now()}-${i}-${rand(10000)}`,
+      paymentVerified: true,
+      isSimulated: true,
+      cashierId,
+    });
+    created.push(...result.bets);
+    lastRound = result.round;
+  }
+  return { bets: created, round: lastRound };
+}

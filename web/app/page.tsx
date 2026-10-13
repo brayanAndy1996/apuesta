@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useQuery } from "@tanstack/react-query";
 
 import { getHealth } from "@/lib/api";
@@ -11,12 +13,20 @@ export default function Home() {
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-6 p-8">
       <h1 className="text-4xl font-bold">Ruleta Rápida</h1>
       <p className="text-neutral-400">Demo con dinero ficticio</p>
-      <a
-        className="rounded border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800"
-        href="/login"
-      >
-        Entrar (admin / cajero)
-      </a>
+      <div className="flex gap-3">
+        <Link
+          className="rounded border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800"
+          href="/sala/GENERAL"
+        >
+          Ver sala en vivo
+        </Link>
+        <Link
+          className="rounded border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800"
+          href="/login"
+        >
+          Entrar (admin / cajero)
+        </Link>
+      </div>
 
       <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-6">
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">

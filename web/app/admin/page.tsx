@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -37,7 +38,15 @@ export default function AdminPage() {
         </p>
       )}
       <p className="mt-6 text-sm text-neutral-500">
-        La gestión de salas y cajeros llega con la spec 003.
+        Gestiona las{" "}
+        <Link href="/admin/salas" className="underline">
+          salas
+        </Link>{" "}
+        y revisa los{" "}
+        <Link href="/admin/reportes" className="underline">
+          reportes por día
+        </Link>
+        .
       </p>
     </main>
   );
